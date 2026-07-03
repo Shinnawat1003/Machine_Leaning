@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Week 3 — Bias-Variance & Learning Curves Playground</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+
+        .plot-box {
+            min-height: 400px;
+        }
+
+        .katex {
+            font-size: 1.1em;
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+        }
+    </style>
+</head>
+
+<body class="bg-gradient-to-br from-slate-50 to-blue-50 text-slate-800">
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <!-- Header -->
+        <header class="text-center mb-10">
+            <h1 class="text-4xl font-bold text-slate-900 mb-3">Bias–Variance & Learning Curves</h1>
+            <p class="text-lg text-slate-600">Week 3 — เปรียบเทียบโมเดล Constant, Linear, Linear through origin</p>
+            <p class="text-sm text-slate-500 mt-2">Target functions: $f(x)=\sin(\pi x)$ และ $f(x)=x^2$ บน
+                $x\sim\mathrm{Uniform}[-1,1]$</p>
+        </header>
+
+        <!-- Section 1: Interactive Playground -->
+        <section class="glass rounded-2xl shadow-xl p-6 mb-8 border border-white/50">
+            <h2 class="text-2xl font-bold mb-4 text-blue-800"> Generalization Playground</h2>
+            <p class="mb-4 text-slate-700">สุ่มชุดข้อมูล ฟิตโมเดล แล้วดูความต่างระหว่าง $E_{\text{in}}$ (บนจุดที่สุ่ม)
+                กับ $E_{\text{out}}$ (เทียบกับเป้าหมายจริงทั้งช่วง)</p>
+
+            <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                <!-- Controls -->
+                <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200 lg:col-span-1">
+                    <h3 class="font-semibold mb-4 text-slate-800">ตั้งค่า</h3>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Target function</label>
+                        <select id="pg-target"
+                            class="w-full rounded-lg border-slate-300 border px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="sin">f(x) = sin(πx)</option>
+                            <option value="x2">f(x) = x²</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Model</label>
+                        <select id="pg-model"
+                            class="w-full rounded-lg border-slate-300 border px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="constant">Constant</option>
+                            <option value="linear" selected>Linear</option>
+                            <option value="origin">Linear through origin</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-slate-700 mb-1">$n$ = <span
+                                id="pg-n-val">2</span></label>
+                        <input type="range" id="pg-n" min="2" max="50" value="2" class="w-full accent-blue-600">
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-slate-700 mb-1">$\sigma$ = <span
+                                id="pg-sigma-val">0.00</span></label>
+                        <input type="range" id="pg-sigma" min="0" max="0.5" step="0.05" value="0"
+                            class="w-full accent-blue-600">
+                    </div>
+
+                    <button id="pg-resample"
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition mb-2">
+                        Resample
+                    </button>
+                    <button id="pg-animate"
+                        class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 px-4 rounded-lg transition">
+                        Animate samples
+                    </button>
+
+                    <div class="mt-4 p-3 bg-slate-50 rounded-lg text-sm">
+                        <div class="flex justify-between mb-1">
+                            <span class="text-purple-600 font-semibold">$E_{\text{in}}$</span>
+                            <span id="pg-ein" class="font-mono">0.00</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-orange-600 font-semibold">$E_{\text{out}}$</span>
+                            <span id="pg-eout" class="font-mono">0.00</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Plots -->
+                <div class="lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+                        <h3 class="font-semibold mb-2 text-slate-700 text-center">In-sample: fit บนจุดที่สุ่ม</h3>
+                        <div id="pg-plot-in" class="plot-box"></div>
+                    </div>
+                    <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+                        <h3 class="font-semibold mb-2 text-slate-700 text-center">Out-of-sample: fit vs เป้าหมายจริง
+                        </h3>
+                        <div id="pg-plot-out" class="plot-box"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: Bias-Variance Table -->
+        <section class="glass rounded-2xl shadow-xl p-6 mb-8 border border-white/50">
+            <h2 class="text-2xl font-bold mb-4 text-blue-800"> Bias–Variance Decomposition ($n=2$)</h2>
+            <p class="mb-4 text-slate-700">ค่าคลาดเคลื่อนนอกตัวอย่างเฉลี่ยถูกแยกเป็น bias² และ variance สำหรับแต่ละโมเดล
+            </p>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-slate-100 text-slate-700 uppercase">
+                        <tr>
+                            <th class="px-4 py-3 rounded-tl-lg">Target</th>
+                            <th class="px-4 py-3">Model</th>
+                            <th class="px-4 py-3 text-right">bias²</th>
+                            <th class="px-4 py-3 text-right">variance</th>
+                            <th class="px-4 py-3 text-right">$E_{\text{out}}$</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bv-table" class="bg-white divide-y divide-slate-200">
+                        <!-- Filled by JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div class="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                    <strong>สังเกต:</strong> Linear model กับ $\sin(\pi x)$ มี bias² ต่ำ (~0.21) แต่ variance สูงมาก
+                    (~1.67) เพราะเส้นตรงพยายามผ่านแค่ 2 จุดที่สุ่มมา
+                </div>
+                <div class="bg-emerald-50 p-4 rounded-lg border border-emerald-100">
+                    <strong>สังเกต:</strong> Constant model กับ $x^2$ ทำงานได้ดีกว่าที่คาด (bias² ต่ำ) เพราะ $x^2$
+                    สมมาตรบน $[-1,1]$ ค่าเฉลี่ย $1/3$ ใกล้เคียงฟังก์ชันจริง
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 3: Learning Curve Simulator -->
+        <section class="glass rounded-2xl shadow-xl p-6 mb-8 border border-white/50">
+            <h2 class="text-2xl font-bold mb-4 text-blue-800"> Learning Curve Simulator</h2>
+            <p class="mb-4 text-slate-700">รัน Monte Carlo simulation เพื่อดูว่า $E_{\text{in}}$ และ $E_{\text{out}}$
+                เปลี่ยนอย่างไรเมื่อจำนวนตัวอย่าง $n$ เพิ่มขึ้น</p>
+
+            <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                <!-- Controls -->
+                <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200 lg:col-span-1">
+                    <h3 class="font-semibold mb-4 text-slate-800">ตั้งค่า</h3>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Target function</label>
+                        <select id="lc-target"
+                            class="w-full rounded-lg border-slate-300 border px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="sin">f(x) = sin(πx)</option>
+                            <option value="x2">f(x) = x²</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Model</label>
+                        <select id="lc-model"
+                            class="w-full rounded-lg border-slate-300 border px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="constant">Constant</option>
+                            <option value="linear" selected>Linear</option>
+                            <option value="origin">Linear through origin</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Noise levels</label>
+                        <div class="space-y-2">
+                            <label class="flex items-center"><input type="checkbox" id="lc-sigma-0" checked
+                                    class="mr-2 accent-blue-600"> $\sigma=0.0$</label>
+                            <label class="flex items-center"><input type="checkbox" id="lc-sigma-1" checked
+                                    class="mr-2 accent-blue-600"> $\sigma=0.1$</label>
+                            <label class="flex items-center"><input type="checkbox" id="lc-sigma-3" checked
+                                    class="mr-2 accent-blue-600"> $\sigma=0.3$</label>
+                        </div>
+                    </div>
+
+                    <button id="lc-run"
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition">
+                        Run Simulation
+                    </button>
+
+                    <p class="text-xs text-slate-500 mt-3">ใช้เวลาประมาณ 5–15 วินาที ขึ้นกับเครื่อง</p>
+                </div>
+
+                <!-- Plot -->
+                <div class="lg:col-span-3 bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+                    <div id="lc-plot" class="plot-box"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 4: Explanation -->
+        <section class="glass rounded-2xl shadow-xl p-6 mb-8 border border-white/50">
+            <h2 class="text-2xl font-bold mb-4 text-blue-800"> สรุปความหมายของภาพ</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-slate-700">
+                <div>
+                    <h3 class="font-semibold text-lg mb-2">Average Fit Plot</h3>
+                    <ul class="list-disc list-inside space-y-1 text-sm">
+                        <li><strong>เส้นเขียว</strong>: ฟังก์ชันเป้าหมาย $f(x)$</li>
+                        <li><strong>เส้นประแดง</strong>: แบบจำลองเฉลี่ย $\bar{g}(x)$ จาก simulation</li>
+                        <li><strong>เส้นสีเทาบาง ๆ</strong>: hypothesis จากชุดข้อมูลสุ่ม 20 ชุด</li>
+                        <li>ความกว้างของเส้นเทา = variance</li>
+                        <li>ระยะห่างเส้นแดงจากเส้นเขียว = bias</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="font-semibold text-lg mb-2">Learning Curve Plot</h3>
+                    <ul class="list-disc list-inside space-y-1 text-sm">
+                        <li><strong>เส้นประ</strong>: $E_{\text{in}}$ บนชุดฝึก</li>
+                        <li><strong>เส้นทึบ</strong>: $E_{\text{out}}$ บนข้อมูลใหม่</li>
+                        <li>ที่ $n=2$ Linear model มี $E_{\text{in}}\approx 0$ แต่ $E_{\text{out}}$ สูง</li>
+                        <li>เมื่อ $n$ เพิ่ม $E_{\text{in}}$ และ $E_{\text{out}}$ ลู่เข้าหากัน</li>
+                        <li>noise สูงทำให้ $E_{\text{out}}$ สูงขึ้น</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <footer class="text-center text-slate-500 text-sm py-4">
+            CDTI — Machine Learning — Week 3 Assignment
+        </footer>
+    </div>
+
+    <script>
+        // ===================== Core Math Functions =====================
+        function targetSin(x) {
+            return Math.sin(Math.PI * x);
+        }
+        function targetX2(x) {
+            return x * x;
+        }
+        function getTarget(name) {
+            return name === 'sin' ? targetSin : targetX2;
+        }
+
+        // Uniform random in [-1, 1]
+        function randUniform() {
+            return Math.random() * 2 - 1;
+        }
+
+        // Normal equation solvers
+        function fitConstant(X, y) {
+            const b = y.reduce((a, v) => a + v, 0) / y.length;
+            return { type: 'constant', b };
+        }
+
+        function fitLinear(X, y) {
+            const n = X.length;
+            let s1 = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+            for (let i = 0; i < n; i++) {
+                s1 += 1;
+                sx += X[i];
+                sy += y[i];
+                sxx += X[i] * X[i];
+                sxy += X[i] * y[i];
+            }
+            // A = [[s1, sx], [sx, sxx]], det = s1*sxx - sx*sx
+            const det = s1 * sxx - sx * sx;
+            if (Math.abs(det) < 1e-12) {
+                // fallback to constant
+                return fitConstant(X, y);
+            }
+            const w0 = (sy * sxx - sx * sxy) / det;
+            const w1 = (s1 * sxy - sx * sy) / det;
+            return { type: 'linear', w0, w1 };
+        }
+
+        function fitLinearOrigin(X, y) {
+            let sxx = 0, sxy = 0;
+            for (let i = 0; i < X.length; i++) {
+                sxx += X[i] * X[i];
+                sxy += X[i] * y[i];
+            }
+            if (Math.abs(sxx) < 1e-12) {
+                return { type: 'origin', w: 0 };
+            }
+            return { type: 'origin', w: sxy / sxx };
+        }
+
+        function fitModel(model, X, y) {
+            if (model === 'constant') return fitConstant(X, y);
+            if (model === 'linear') return fitLinear(X, y);
+            return fitLinearOrigin(X, y);
+        }
+
+        function predict(params, x) {
+            if (params.type === 'constant') return params.b;
+            if (params.type === 'linear') return params.w0 + params.w1 * x;
+            return params.w * x;
+        }
+
+        function mse(yTrue, yPred) {
+            let s = 0;
+            for (let i = 0; i < yTrue.length; i++) {
+                const d = yTrue[i] - yPred[i];
+                s += d * d;
+            }
+            return s / yTrue.length;
+        }
+
+        // Numerical integration of (g(x)-f(x))^2 over [-1,1]
+        function computeEout(f, params, nPoints = 1000) {
+            const a = -1, b = 1;
+            const h = (b - a) / (nPoints - 1);
+            let sum = 0;
+            for (let i = 0; i < nPoints; i++) {
+                const x = a + i * h;
+                const d = predict(params, x) - f(x);
+                const w = (i === 0 || i === nPoints - 1) ? 0.5 : 1.0;
+                sum += w * d * d;
+            }
+            return sum * h;
+        }
+
+        function sampleData(f, n, sigma) {
+            const X = [];
+            const y = [];
+            for (let i = 0; i < n; i++) {
+                const x = randUniform();
+                X.push(x);
+                y.push(f(x) + (sigma > 0 ? randNormal(0, sigma) : 0));
+            }
+            return { X, y };
+        }
+
+        // Box-Muller for normal random
+        function randNormal(mean, std) {
+            let u = 0, v = 0;
+            while (u === 0) u = Math.random();
+            while (v === 0) v = Math.random();
+            const z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+            return mean + z * std;
+        }
+
+        // ===================== Playground =====================
+        const pgTarget = document.getElementById('pg-target');
+        const pgModel = document.getElementById('pg-model');
+        const pgN = document.getElementById('pg-n');
+        const pgSigma = document.getElementById('pg-sigma');
+        const pgNVal = document.getElementById('pg-n-val');
+        const pgSigmaVal = document.getElementById('pg-sigma-val');
+        const pgEin = document.getElementById('pg-ein');
+        const pgEout = document.getElementById('pg-eout');
+
+        pgN.addEventListener('input', () => pgNVal.textContent = pgN.value);
+        pgSigma.addEventListener('input', () => {
+            pgSigmaVal.textContent = parseFloat(pgSigma.value).toFixed(2);
+        });
+
+        let animationId = null;
+        let pgPlotsInited = false;
+
+        // Layout คงที่สำหรับ playground plots
+        const pgInLayout = {
+            xaxis: { title: 'x', range: [-1, 1] },
+            yaxis: { title: 'y', range: [-2, 2] },
+            margin: { t: 20, b: 40, l: 50, r: 20 },
+            legend: { x: 0, y: 1 }
+        };
+        const pgOutLayout = {
+            xaxis: { title: 'x', range: [-1, 1] },
+            yaxis: { title: 'y', range: [-2, 2] },
+            margin: { t: 20, b: 40, l: 50, r: 20 },
+            legend: { x: 0, y: 1 }
+        };
+
+        function updatePlayground(fast = false) {
+            const f = getTarget(pgTarget.value);
+            const model = pgModel.value;
+            const n = parseInt(pgN.value);
+            const sigma = parseFloat(pgSigma.value);
+
+            const { X, y } = sampleData(f, n, sigma);
+            const params = fitModel(model, X, y);
+
+            // Predictions
+            const yPredTrain = X.map(x => predict(params, x));
+            const ein = mse(y, yPredTrain);
+            // ในโหมด animation ลดจุด Eout เพื่อประหยัดเวลา render
+            const eout = computeEout(f, params, fast ? 100 : 1000);
+
+            pgEin.textContent = ein.toFixed(4);
+            pgEout.textContent = eout.toFixed(4);
+
+            // Plot curves
+            const xGrid = [];
+            const yTarget = [];
+            const yModel = [];
+            const stepSize = fast ? 0.05 : 0.01;
+            for (let x = -1; x <= 1.001; x += stepSize) {
+                xGrid.push(x);
+                yTarget.push(f(x));
+                yModel.push(predict(params, x));
+            }
+
+            const trainTrace = {
+                x: X, y: y,
+                mode: 'markers',
+                type: 'scatter',
+                name: 'Training points',
+                marker: { size: 10, color: '#E07A5F' }
+            };
+            const modelTrace = {
+                x: xGrid, y: yModel,
+                mode: 'lines',
+                type: 'scatter',
+                name: 'g(x)',
+                line: { color: '#5B8FB9', width: 3 }
+            };
+            const targetTrace = {
+                x: xGrid, y: yTarget,
+                mode: 'lines',
+                type: 'scatter',
+                name: 'f(x)',
+                line: { color: '#6BA38C', width: 3 }
+            };
+
+            // ใช้ Plotly.react แทน newPlot เมื่อ plot ถูกสร้างแล้ว
+            // เพื่อลด overhead จากการสร้าง DOM ใหม่ทุกเฟรม
+            if (pgPlotsInited) {
+                Plotly.react('pg-plot-in', [trainTrace, modelTrace], pgInLayout, { responsive: true });
+                Plotly.react('pg-plot-out', [targetTrace, modelTrace], pgOutLayout, { responsive: true });
+            } else {
+                Plotly.newPlot('pg-plot-in', [trainTrace, modelTrace], pgInLayout, { responsive: true });
+                Plotly.newPlot('pg-plot-out', [targetTrace, modelTrace], pgOutLayout, { responsive: true });
+                pgPlotsInited = true;
+            }
+        }
+
+        document.getElementById('pg-resample').addEventListener('click', () => {
+            if (animationId) {
+                clearTimeout(animationId);
+                animationId = null;
+            }
+            updatePlayground(false);
+        });
+
+        document.getElementById('pg-animate').addEventListener('click', () => {
+            if (animationId) {
+                clearTimeout(animationId);
+                animationId = null;
+                return;
+            }
+            let count = 0;
+            const totalFrames = 1000;
+            const frameDelayMs = 10;  // หน่วงระหว่างเฟรมเพื่อให้ดูชัดและลด CPU
+
+            function step() {
+                updatePlayground(true);  // โหมดเร็ว
+                count++;
+                if (count < totalFrames) {
+                    animationId = setTimeout(step, frameDelayMs);
+                } else {
+                    animationId = null;
+                    // จบ animation แล้วคำนวณค่า Eout แบบเต็ม precision ครั้งสุดท้าย
+                    updatePlayground(false);
+                }
+            }
+            step();
+        });
+
+        [pgTarget, pgModel, pgN, pgSigma].forEach(el => {
+            el.addEventListener('change', () => {
+                if (animationId) {
+                    clearTimeout(animationId);
+                    animationId = null;
+                }
+                updatePlayground(false);
+            });
+        });
+
+        // ===================== Bias-Variance Table =====================
+        const bvData = [
+            { target: 'sin(πx)', model: 'Constant', bias2: 0.5000, var: 0.2500, eout: 0.7500 },
+            { target: 'sin(πx)', model: 'Linear', bias2: 0.2060, var: 1.6703, eout: 1.8763 },
+            { target: 'sin(πx)', model: 'Linear through origin', bias2: 0.2718, var: 0.2372, eout: 0.5090 },
+            { target: 'x²', model: 'Constant', bias2: 0.0889, var: 0.0444, eout: 0.1333 },
+            { target: 'x²', model: 'Linear', bias2: 0.1998, var: 0.3318, eout: 0.5315 },
+            { target: 'x²', model: 'Linear through origin', bias2: 0.2000, var: 0.1147, eout: 0.3147 },
+        ];
+
+        const bvTable = document.getElementById('bv-table');
+        bvData.forEach((row, idx) => {
+            const tr = document.createElement('tr');
+            tr.className = idx % 2 === 0 ? 'bg-white' : 'bg-slate-50';
+            tr.innerHTML = `
+                <td class="px-4 py-3 font-medium">${row.target}</td>
+                <td class="px-4 py-3">${row.model}</td>
+                <td class="px-4 py-3 text-right font-mono">${row.bias2.toFixed(4)}</td>
+                <td class="px-4 py-3 text-right font-mono">${row.var.toFixed(4)}</td>
+                <td class="px-4 py-3 text-right font-mono font-semibold text-blue-700">${row.eout.toFixed(4)}</td>
+            `;
+            bvTable.appendChild(tr);
+        });
+
+        // ===================== Learning Curve Simulator =====================
+        const lcTarget = document.getElementById('lc-target');
+        const lcModel = document.getElementById('lc-model');
+        const lcRun = document.getElementById('lc-run');
+
+        function runLearningCurve(targetName, modelName, sigma, nList, nRuns = 300) {
+            const f = getTarget(targetName);
+            const einList = [];
+            const eoutList = [];
+
+            for (const n of nList) {
+                let einSum = 0, eoutSum = 0;
+                for (let r = 0; r < nRuns; r++) {
+                    const { X, y } = sampleData(f, n, sigma);
+                    const params = fitModel(modelName, X, y);
+
+                    // Ein
+                    const yPredTrain = X.map(x => predict(params, x));
+                    einSum += mse(y, yPredTrain);
+
+                    // Eout
+                    eoutSum += computeEout(f, params, 500);
+                }
+                einList.push(einSum / nRuns);
+                eoutList.push(eoutSum / nRuns);
+            }
+            return { einList, eoutList };
+        }
+
+        lcRun.addEventListener('click', async () => {
+            lcRun.disabled = true;
+            lcRun.textContent = 'Running...';
+
+            // Allow UI to update
+            await new Promise(r => setTimeout(r, 50));
+
+            const targetName = lcTarget.value;
+            const modelName = lcModel.value;
+            const nList = [2, 3, 4, 5, 7, 10, 15, 20, 30, 50, 100];
+            const sigmas = [];
+            if (document.getElementById('lc-sigma-0').checked) sigmas.push(0.0);
+            if (document.getElementById('lc-sigma-1').checked) sigmas.push(0.1);
+            if (document.getElementById('lc-sigma-3').checked) sigmas.push(0.3);
+
+            const traces = [];
+            const colors = { '0': '#3B82F6', '0.1': '#10B981', '0.3': '#F59E0B' };
+
+            for (const sigma of sigmas) {
+                const { einList, eoutList } = runLearningCurve(targetName, modelName, sigma, nList, 200);
+                traces.push({
+                    x: nList, y: einList,
+                    mode: 'lines+markers',
+                    name: `Ein σ=${sigma}`,
+                    line: { color: colors[String(sigma)] || '#666', dash: 'dash' },
+                    marker: { size: 7 }
+                });
+                traces.push({
+                    x: nList, y: eoutList,
+                    mode: 'lines+markers',
+                    name: `Eout σ=${sigma}`,
+                    line: { color: colors[String(sigma)] || '#666' },
+                    marker: { size: 7, symbol: 'square' }
+                });
+            }
+
+            const layout = {
+                xaxis: { title: 'n (number of samples)', type: 'log' },
+                yaxis: { title: 'Expected Error' },
+                margin: { t: 20, b: 50, l: 60, r: 20 },
+                legend: { x: 1, y: 1 },
+                hovermode: 'x unified'
+            };
+            Plotly.newPlot('lc-plot', traces, layout, { responsive: true });
+
+            lcRun.disabled = false;
+            lcRun.textContent = ' Run Simulation';
+        });
+
+        // ===================== KaTeX Rendering =====================
+        document.addEventListener("DOMContentLoaded", function () {
+            renderMathInElement(document.body, {
+                delimiters: [
+                    { left: '$$', right: '$$', display: true },
+                    { left: '$', right: '$', display: false }
+                ]
+            });
+            // Initialize playground
+            updatePlayground(false);
+            // Initialize empty learning curve
+            Plotly.newPlot('lc-plot', [], {
+                xaxis: { title: 'n (number of samples)', type: 'log' },
+                yaxis: { title: 'Expected Error' },
+                margin: { t: 20, b: 50, l: 60, r: 20 },
+                annotations: [{
+                    text: 'กด Run Simulation เพื่อเริ่ม',
+                    showarrow: false,
+                    xref: 'paper', yref: 'paper',
+                    x: 0.5, y: 0.5,
+                    font: { size: 16, color: '#94a3b8' }
+                }]
+            }, { responsive: true });
+        });
+    </script>
+</body>
+
+</html>
