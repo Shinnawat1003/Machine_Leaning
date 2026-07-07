@@ -1,236 +1,44 @@
 """
-Bias-Variance Decomposition Lab
-================================
-เปรียบเทียบ 3 โมเดลบนปัญหา f(x) = sin(pi*x) และ f(x) = x^2
-- Constant model        : h(x) = b
-- Linear model          : h(x) = w0 + w1*x
-- Linear through origin : h(x) = w*x
+Bias–Variance Decomposition & Learning Curves Lab
+===================================================
+ต้นฉบับตาม playground ของอาจารย์:
+  - Generalization:    https://waranyuwongseree.github.io/generalization-playground/
+  - Learning Curve:    https://waranyuwongseree.github.io/learning-curve-playground/
 
-ข้อมูล: สุ่ม x ~ Uniform[-1, 1] จำนวน n=2 ตัวอย่าง (ยกเว้น learning curve)
-วิธี: ใช้ Normal Equation (numpy.linalg.lstsq) ไม่ใช้ Gradient Descent
+เปรียบเทียบ polynomial models 4 แบบบนปัญหา regression:
+  - constant    : h(x) = w0                (degree 0)
+  - linear      : h(x) = w0 + w1 x         (degree 1)
+  - quadratic   : h(x) = w0 + w1 x + w2 x² (degree 2)
+  - cubic       : h(x) = w0 + w1 x + ...   (degree 3)
+
+ฟังก์ชันเป้าหมาย:
+  - f(x) = sin(πx)
+  - f(x) = x²
+  - f(x) = x³
+
+ข้อมูล: x ~ Uniform[-1, 1]
+วิธี fit: Normal Equation (numpy.linalg.lstsq)
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
+import json
 import os
+
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 np.random.seed(42)
 
-# --------------------------- Target Functions ---------------------------
-def f_sin(x):
-    return np.sin(np.pi * x)
+# --------------------------- Paths ---------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PLOTS_DIR = os.path.join(BASE_DIR, 'plots')
+RESULTS_JSON = os.path.join(BASE_DIR, 'results.json')
+os.makedirs(PLOTS_DIR, exist_ok=True)
 
-def f_x2(x):
-    return x ** 2
-
-TARGETS = {
-    'sin(pi*x)': f_sin,
-    'x^2': f_x2,
-}
-
-# --------------------------- Models (Normal Equation) ---------------------------
-class ConstantModel:
-    name = 'Constant'
-    @staticmethod
-    def fit(X, y):
-        # ค่าคงที่ = ค่าเฉลี่ยของ y
-        return {'b': np.mean(y)}
-    @staticmethod
-    def predict(params, X):
-        X = np.asarray(X)
-        return np.full(X.shape, params['b'])
-
-class LinearModel:
-    name = 'Linear'
-    @staticmethod
-    def fit(X, y):
-        X = np.asarray(X)
-        # design matrix [1, x]
-        Phi = np.column_stack([np.ones(len(X)), X])
-        w = np.linalg.lstsq(Phi, y, rcond=None)[0]
-        return {'w0': w[0], 'w1': w[1]}
-    @staticmethod
-    def predict(params, X):
-        X = np.asarray(X)
-        return params['w0'] + params['w1'] * X
-
-class LinearOriginModel:
-    name = 'Linear through origin'
-    @staticmethod
-    def fit(X, y):
-        X = np.asarray(X).reshape(-1, 1)
-        # design matrix [x]
-        w = np.linalg.lstsq(X, y, rcond=None)[0]
-        return {'w': w[0]}
-    @staticmethod
-    def predict(params, X):
-        X = np.asarray(X)
-        return params['w'] * X
-
-MODELS = [ConstantModel, LinearModel, LinearOriginModel]
-
-# --------------------------- Analytical Helpers ---------------------------
-def safe_fit_linear(x1, x2, y1, y2):
-    """fit เส้นตรงผ่าน 2 จุด รองรับ input ทั้ง scalar และ array"""
-    x1, x2, y1, y2 = np.asarray(x1), np.asarray(x2), np.asarray(y1), np.asarray(y2)
-    too_close = np.abs(x2 - x1) < 1e-10
-    w1 = np.where(too_close, 0.0, (y2 - y1) / np.where(too_close, 1.0, x2 - x1))
-    w0 = np.where(too_close, (y1 + y2) / 2.0, y1 - w1 * x1)
-    return w0, w1
-
-def gD_constant(x1, x2, f):
-    return (f(x1) + f(x2)) / 2
-
-def gD_linear(x, x1, x2, f):
-    y1, y2 = f(x1), f(x2)
-    w0, w1 = safe_fit_linear(x1, x2, y1, y2)
-    return w0 + w1 * x
-
-def gD_linear_origin(x, x1, x2, f):
-    y1, y2 = f(x1), f(x2)
-    denom = x1**2 + x2**2
-    too_small = denom < 1e-10
-    w = np.where(too_small, 0.0, (x1 * y1 + x2 * y2) / np.where(too_small, 1.0, denom))
-    return w * x
-
-# --------------------------- Analytical Bias/Variance ---------------------------
-def analytical_constant(f, n_x=200000):
-    """
-    หาค่า bias^2 และ variance ของ constant model แบบ analytical
-    ใช้ numerical integration (trapezoidal rule) บนกริดหนาแน่น
-    """
-    xs = np.linspace(-1, 1, n_x)
-    dx_factor = 1.0 / 2.0  # หาร 2 เพราะความกว้างช่วงคือ 2
-
-    E_f = np.trapezoid(f(xs), xs) * dx_factor
-    E_f2 = np.trapezoid(f(xs)**2, xs) * dx_factor
-
-    g_bar = E_f  # ค่าคงที่
-    bias2 = np.trapezoid((g_bar - f(xs))**2, xs) * dx_factor
-    # var(x) = E_D[g_D^2] - g_bar^2 = 0.5*(E[f^2] + E[f]^2) - E[f]^2 = 0.5*(E[f^2]-E[f]^2)
-    var = 0.5 * (E_f2 - E_f**2)
-    variance = var  # ไม่ขึ้นกับ x
-    return {'bias2': bias2, 'variance': variance, 'eout': bias2 + variance,
-            'g_bar': lambda x: np.full(np.asarray(x).shape, g_bar)}
-
-def analytical_model(f, model, n_x=400, n_mc=200000, seed_offset=0):
-    """
-    หาค่า bias^2 และ variance แบบ numerical integration เหนือ x1, x2
-    ใช้ Monte Carlo integration สำหรับ E_D และ Riemann sum สำหรับ E_x
-    """
-    if model == ConstantModel:
-        return analytical_constant(f, n_x=200000)
-
-    rng = np.random.default_rng(123 + seed_offset)
-    xs = np.linspace(-1, 1, n_x)
-    dx = xs[1] - xs[0]
-
-    # เลือกฟังก์ชัน g_D ตามโมเดล
-    if model == LinearModel:
-        gD_func = gD_linear
-    else:  # LinearOriginModel
-        gD_func = gD_linear_origin
-
-    # สุ่มชุดข้อมูล (x1, x2) จำนวน n_mc ชุด
-    x1 = rng.uniform(-1, 1, n_mc)
-    x2 = rng.uniform(-1, 1, n_mc)
-
-    # คำนวณ g_D(x) สำหรับทุก x และทุกชุดข้อมูล ได้ matrix ขนาด (n_mc, n_x)
-    # ทำ vectorize โดย broadcast
-    X = xs.reshape(1, -1)          # (1, n_x)
-    X1 = x1.reshape(-1, 1)         # (n_mc, 1)
-    X2 = x2.reshape(-1, 1)         # (n_mc, 1)
-    g_vals = gD_func(X, X1, X2, f)  # (n_mc, n_x)
-
-    g_bar = g_vals.mean(axis=0)        # (n_x,)
-    E_g2 = np.mean(g_vals**2, axis=0)  # (n_x,)
-
-    bias2_grid = (g_bar - f(xs))**2
-    var_grid = E_g2 - g_bar**2
-
-    # ประมาณอินทิเกรตบน [-1,1] ด้วย trapezoidal rule
-    bias2 = np.trapezoid(bias2_grid, xs) / 2.0
-    variance = np.trapezoid(var_grid, xs) / 2.0
-
-    # สร้าง interpolator ง่าย ๆ สำหรับ g_bar(x)
-    def g_bar_func(x_query):
-        return np.interp(np.asarray(x_query), xs, g_bar)
-
-    return {'bias2': bias2, 'variance': variance, 'eout': bias2 + variance, 'g_bar': g_bar_func}
-
-# --------------------------- Simulation Bias/Variance ---------------------------
-def simulate_bias_variance(f, model, n_samples=2, n_datasets=20000, n_test=2000):
-    """Monte Carlo estimate ของ bias^2 และ variance"""
-    x_test = np.linspace(-1, 1, n_test)
-    preds = np.zeros((n_datasets, n_test))
-
-    for i in range(n_datasets):
-        X = np.random.uniform(-1, 1, n_samples)
-        # ถ้าใส่ noise จะถูกจัดการที่ฟังก์ชันอื่น ที่นี่ไม่ใส่ noise
-        y = f(X)
-        params = model.fit(X, y)
-        preds[i] = model.predict(params, x_test)
-
-    g_bar = preds.mean(axis=0)
-    bias2 = np.mean((g_bar - f(x_test))**2)
-    variance = np.mean(np.var(preds, axis=0))
-    eout = bias2 + variance
-    return {'bias2': bias2, 'variance': variance, 'eout': eout, 'g_bar': g_bar, 'x_test': x_test}
-
-# --------------------------- Learning Curves ---------------------------
-def learning_curve(f, model, n_list, n_datasets=3000, n_test=1000, sigma=0.0):
-    """คืนค่า Ein และ Eout เฉลี่ยสำหรับแต่ละ n"""
-    x_test = np.linspace(-1, 1, n_test)
-    Ein_list, Eout_list = [], []
-
-    for n in n_list:
-        Ein_sum, Eout_sum = 0.0, 0.0
-        for _ in range(n_datasets):
-            X = np.random.uniform(-1, 1, n)
-            y = f(X) + np.random.normal(0, sigma, n)
-            params = model.fit(X, y)
-
-            # Ein
-            y_pred_train = model.predict(params, X)
-            Ein_sum += np.mean((y_pred_train - y)**2)
-
-            # Eout
-            y_pred_test = model.predict(params, x_test)
-            y_true_test = f(x_test) + np.random.normal(0, sigma, n_test)
-            Eout_sum += np.mean((y_pred_test - y_true_test)**2)
-
-        Ein_list.append(Ein_sum / n_datasets)
-        Eout_list.append(Eout_sum / n_datasets)
-
-    return np.array(Ein_list), np.array(Eout_list)
-
-# --------------------------- Main Results ---------------------------
-print("=" * 80)
-print("Bias-Variance Decomposition (N=2, Uniform[-1,1])")
-print("=" * 80)
-
-results = {}
-for target_name, f in TARGETS.items():
-    print(f"\n### Target: {target_name} ###")
-    results[target_name] = {}
-    for model in MODELS:
-        # Analytical
-        ana = analytical_model(f, model)
-        # Simulation
-        sim = simulate_bias_variance(f, model)
-        results[target_name][model.name] = {'analytical': ana, 'simulation': sim}
-
-        print(f"\nModel: {model.name}")
-        print(f"  Analytical -> bias^2 = {ana['bias2']:.4f}, variance = {ana['variance']:.4f}, Eout = {ana['eout']:.4f}")
-        print(f"  Simulation -> bias^2 = {sim['bias2']:.4f}, variance = {sim['variance']:.4f}, Eout = {sim['eout']:.4f}")
-
-# --------------------------- Plotting ---------------------------
-# สร้างโฟลเดอร์ plots สำหรับเก็บภาพที่ visualize ผลลัพธ์
-os.makedirs('plots', exist_ok=True)
 
 def safe_filename(name):
-    """แปลงชื่อ target ให้เป็นชื่อไฟล์ที่ปลอดภัยทั้งบน Windows/Linux/Mac
-    (Windows ห้ามใช้ < > : " / \\ | ? * ในชื่อไฟล์)"""
+    """แปลงชื่อ target ให้เป็นชื่อไฟล์ที่ปลอดภัยทั้งบน Windows/Linux/Mac."""
     for ch, repl in [(' ', '_'), ('^', ''), ('*', ''), ('(', ''), (')', ''),
                       ('<', ''), ('>', ''), (':', ''), ('"', ''),
                       ('/', ''), ('\\', ''), ('|', ''), ('?', '')]:
@@ -238,139 +46,338 @@ def safe_filename(name):
     return name
 
 
-# =============================================================================
-# Plot 1: Average Fit Visualization (paired: raw hypothesis lines + variance band)
-# =============================================================================
-# สำหรับแต่ละ (target, model) วาด 2 กราฟคู่กัน:
-#   - กราฟซ้าย : เส้นเป้าหมาย f(x) (เขียว) + เส้น hypothesis จากชุดข้อมูลสุ่มหลายชุด (เทาบาง ๆ)
-#                + เส้นเฉลี่ย g_bar(x) (แดงประ) -> ให้เห็น "variance" เป็นความกระจายของเส้นเทา
-#   - กราฟขวา  : เส้นเดียวกัน แต่แสดง variance เป็นแถบสีแดงโปร่งแสง (mean ± std) แทนเส้นเทา
-# ใส่ noise สุ่ม (Gaussian, std = NOISE_STD) ลงในตัวอย่างตอนสร้าง hypothesis เพื่อจำลอง
-# สถานการณ์ noisy target ตามที่โจทย์ข้อ 3 ให้ทดลองเพิ่มเติม
-# =============================================================================
-NOISE_STD = 0.2  # ระดับ noise ที่ใส่ตอน fit ตัวอย่างสำหรับภาพนี้ (ปรับได้)
+# --------------------------- Target Functions ---------------------------
+def f_sin(x):
+    return np.sin(np.pi * x)
 
-MODEL_TITLE = {
-    'Constant': 'constant',
-    'Linear': 'linear',
-    'Linear through origin': 'linear_origin',
-}
-TARGET_TITLE = {
-    'sin(pi*x)': 'sin(\\pi x)',
-    'x^2': 'x^2',
+
+def f_x2(x):
+    return x ** 2
+
+
+def f_x3(x):
+    return x ** 3
+
+
+TARGETS = {
+    'sin': {'fn': f_sin, 'label': r'$f(x)=\sin(\pi x)$', 'title': 'sinpix'},
+    'x2': {'fn': f_x2, 'label': r'$f(x)=x^2$', 'title': 'x2'},
+    'x3': {'fn': f_x3, 'label': r'$f(x)=x^3$', 'title': 'x3'},
 }
 
-def simulate_mean_std(f, model, sigma, n_samples=2, n_datasets=20000, n_test=300):
-    """หา g_bar(x) และ std(x) ของ hypothesis จาก simulation โดยใส่ noise ตอน fit"""
+
+# --------------------------- Models (Polynomial Regression) ---------------------------
+class PolynomialModel:
+    """Polynomial regression ผ่าน Normal Equation."""
+    def __init__(self, degree, name):
+        self.degree = degree
+        self.name = name
+
+    def design_matrix(self, X):
+        X = np.asarray(X)
+        cols = [X ** d for d in range(self.degree + 1)]
+        return np.column_stack(cols)
+
+    def fit(self, X, y):
+        Phi = self.design_matrix(X)
+        w = np.linalg.lstsq(Phi, y, rcond=None)[0]
+        return w
+
+    def predict(self, w, X):
+        Phi = self.design_matrix(X)
+        return Phi @ w
+
+
+MODELS = [
+    PolynomialModel(0, 'constant'),
+    PolynomialModel(1, 'linear'),
+    PolynomialModel(2, 'quadratic'),
+    PolynomialModel(3, 'cubic'),
+]
+
+
+# --------------------------- Simulation Core ---------------------------
+def sample_dataset(f, n, sigma=0.0):
+    """สุ่มชุดข้อมูลจาก f บน [-1,1] พร้อม noise N(0, sigma²)."""
+    X = np.random.uniform(-1, 1, n)
+    y = f(X) + np.random.normal(0, sigma, n)
+    return X, y
+
+
+def simulate_bias_variance(f, model, n_samples=2, n_datasets=20000, n_test=300, sigma=0.0):
+    """
+    Monte Carlo estimate ของ bias², variance, Eout
+    Eout = bias² + variance + sigma²
+    """
     x_test = np.linspace(-1, 1, n_test)
     preds = np.zeros((n_datasets, n_test))
+
     for i in range(n_datasets):
-        X = np.random.uniform(-1, 1, n_samples)
-        y = f(X) + np.random.normal(0, sigma, n_samples)
-        params = model.fit(X, y)
-        preds[i] = model.predict(params, x_test)
-    return x_test, preds.mean(axis=0), preds.std(axis=0)
+        X, y = sample_dataset(f, n_samples, sigma)
+        w = model.fit(X, y)
+        preds[i] = model.predict(w, x_test)
+
+    g_bar = preds.mean(axis=0)
+    bias2_grid = (g_bar - f(x_test)) ** 2
+    var_grid = np.var(preds, axis=0)
+
+    # ค่าเฉลี่ยเหนือ x ~ Uniform[-1,1] คือ integral / 2
+    bias2 = np.trapezoid(bias2_grid, x_test) / 2.0
+    variance = np.trapezoid(var_grid, x_test) / 2.0
+    eout = bias2 + variance + sigma ** 2
+
+    return {
+        'bias2': float(bias2),
+        'variance': float(variance),
+        'eout': float(eout),
+        'g_bar': g_bar.tolist(),
+        'x_test': x_test.tolist(),
+    }
+
+
+def learning_curve(f, model, n_list, n_datasets=3000, n_test=1000, sigma=0.0):
+    """คืนค่า Ein และ Eout เฉลี่ยสำหรับแต่ละ n"""
+    x_test = np.linspace(-1, 1, n_test)
+    Ein_list, Eout_list = [], []
+
+    for n in n_list:
+        # โมเดล degree d ต้องการอย่างน้อย d+1 จุด
+        if n < model.degree + 1:
+            Ein_list.append(None)
+            Eout_list.append(None)
+            continue
+
+        Ein_sum, Eout_sum = 0.0, 0.0
+        for _ in range(n_datasets):
+            X, y = sample_dataset(f, n, sigma)
+            w = model.fit(X, y)
+
+            # Ein
+            y_pred_train = model.predict(w, X)
+            Ein_sum += np.mean((y_pred_train - y) ** 2)
+
+            # Eout (เทียบกับ true target + noise ใหม่)
+            y_pred_test = model.predict(w, x_test)
+            y_true_test = f(x_test) + np.random.normal(0, sigma, n_test)
+            Eout_sum += np.mean((y_pred_test - y_true_test) ** 2)
+
+        Ein_list.append(Ein_sum / n_datasets)
+        Eout_list.append(Eout_sum / n_datasets)
+
+    return Ein_list, Eout_list
+
+
+# --------------------------- Main Results ---------------------------
+print("=" * 80)
+print("Bias-Variance Decomposition (N=2, Uniform[-1,1])")
+print("=" * 80)
+
+results = {'bias_variance': {}, 'learning_curve': {}}
+
+for target_key, target_info in TARGETS.items():
+    f = target_info['fn']
+    print(f"\n### Target: {target_info['label']} ###")
+    results['bias_variance'][target_key] = {}
+
+    for model in MODELS:
+        sim = simulate_bias_variance(f, model, n_samples=2, sigma=0.0)
+        results['bias_variance'][target_key][model.name] = sim
+        print(f"  {model.name:12s}: bias²={sim['bias2']:.4f}, variance={sim['variance']:.4f}, Eout={sim['eout']:.4f}")
+
+# --------------------------- Plot 1: Average Fit ---------------------------
+print("\n" + "=" * 80)
+print("Generating plots...")
+print("=" * 80)
 
 x_plot = np.linspace(-1, 1, 500)
-fig, axes = plt.subplots(2, 6, figsize=(20, 7), sharex=True, sharey=True)
+n_sample_fits = 40
 
-for row_idx, (target_name, f) in enumerate(TARGETS.items()):
-    for m_idx, model in enumerate(MODELS):
-        ax_lines = axes[row_idx, m_idx * 2]
-        ax_band = axes[row_idx, m_idx * 2 + 1]
-        title = f"Target: {TARGET_TITLE[target_name]} — Model: {MODEL_TITLE[model.name]}"
+fig, axes = plt.subplots(len(TARGETS), len(MODELS), figsize=(16, 10), sharex=True, sharey=True)
 
-        x_test, mean_curve, std_curve = simulate_mean_std(f, model, sigma=NOISE_STD)
+for row_idx, (target_key, target_info) in enumerate(TARGETS.items()):
+    f = target_info['fn']
+    for col_idx, model in enumerate(MODELS):
+        ax = axes[row_idx, col_idx]
+        # วาด target
+        ax.plot(x_plot, f(x_plot), color='#6BA38C', linewidth=2.5, label='target')
 
-        for ax in (ax_lines, ax_band):
-            ax.plot(x_plot, f(x_plot), color='green', linewidth=2)
-            ax.set_title(title, fontsize=9)
-            ax.set_xlim(-1, 1)
-            ax.grid(True, alpha=0.3)
+        # สุ่ม fit หลายชุด
+        for _ in range(n_sample_fits):
+            X, y = sample_dataset(f, 2, sigma=0.0)
+            if len(X) < model.degree + 1:
+                continue
+            w = model.fit(X, y)
+            ax.plot(x_plot, model.predict(w, x_plot), color='gray', alpha=0.25, linewidth=0.8)
 
-        # กราฟซ้าย: เส้น hypothesis รายชุดข้อมูล (แสดง variance เป็นความกระจายของเส้น)
-        for _ in range(60):
-            X = np.random.uniform(-1, 1, 2)
-            y = f(X) + np.random.normal(0, NOISE_STD, 2)
-            params = model.fit(X, y)
-            ax_lines.plot(x_plot, model.predict(params, x_plot), color='black', alpha=0.15, linewidth=0.6)
-        ax_lines.plot(x_test, mean_curve, color='red', linestyle='--', linewidth=2)
+        # วาด average fit
+        sim = results['bias_variance'][target_key][model.name]
+        g_bar = np.array(sim['g_bar'])
+        x_test = np.array(sim['x_test'])
+        ax.plot(x_test, g_bar, color='#E07A5F', linestyle='--', linewidth=2.5, label=r'$\bar{g}(x)$')
 
-        # กราฟขวา: variance เป็นแถบสีแดง (mean ± std)
-        ax_band.plot(x_test, mean_curve, color='red', linestyle='--', linewidth=2)
-        ax_band.fill_between(x_test, mean_curve - std_curve, mean_curve + std_curve,
-                              color='red', alpha=0.3)
+        if row_idx == 0:
+            ax.set_title(model.name, fontsize=12, fontweight='bold')
+        if col_idx == 0:
+            ax.set_ylabel(target_info['label'], fontsize=12)
+        if row_idx == len(TARGETS) - 1:
+            ax.set_xlabel('x')
+        ax.set_xlim(-1, 1)
+        ax.set_ylim(-2, 2)
+        ax.grid(True, alpha=0.3)
 
-for ax in axes[:, 0]:
-    ax.set_ylabel('y')
-for ax in axes[-1, :]:
-    ax.set_xlabel('x')
+handles, labels = axes[0, 0].get_legend_handles_labels()
+fig.legend(handles, labels, loc='upper center', ncol=2, fontsize=11, bbox_to_anchor=(0.5, 0.98))
+fig.suptitle('Average Fit: target (green), sample fits (gray), average fit (red dashed)', fontsize=14, y=1.02)
+plt.tight_layout()
+plt.savefig(os.path.join(PLOTS_DIR, 'average_fit.png'), dpi=150, bbox_inches='tight')
+print("Saved: plots/average_fit.png")
 
-axes[0, 0].set_ylim(-2, 2)
 
-target_handle = plt.Line2D([0], [0], color='green', lw=2, label='Target')
-average_handle = plt.Line2D([0], [0], color='red', lw=2, ls='--', label='Average')
-fig.legend(handles=[target_handle, average_handle], loc='upper center', ncol=2,
-           fontsize=10, bbox_to_anchor=(0.5, 1.03))
-fig.suptitle(f"Bias-Variance Decomposition (Two Samples, Noise Std: {NOISE_STD})", fontsize=16)
+# --------------------------- Plot 2: Bias² and Variance Curves ---------------------------
+fig, axes = plt.subplots(len(TARGETS), len(MODELS), figsize=(16, 10), sharex=True, sharey=True)
 
-plt.tight_layout(rect=[0, 0, 1, 0.93])
-plt.savefig('plots/average_fit.png', dpi=150)
-print("\nSaved: plots/average_fit.png")
+for row_idx, (target_key, target_info) in enumerate(TARGETS.items()):
+    f = target_info['fn']
+    for col_idx, model in enumerate(MODELS):
+        ax = axes[row_idx, col_idx]
+        sim = results['bias_variance'][target_key][model.name]
+        x_test = np.array(sim['x_test'])
 
-# 2. ตารางเปรียบเทียบ
-print("\n" + "=" * 80)
-print("Summary Table")
-print("=" * 80)
-print(f"{'Target':<12} {'Model':<22} {'bias^2 (ana)':<14} {'var (ana)':<12} {'Eout (ana)':<12} {'Eout (sim)':<12}")
-print("-" * 80)
-for target_name in TARGETS:
-    for model in MODELS:
-        ana = results[target_name][model.name]['analytical']
-        sim = results[target_name][model.name]['simulation']
-        print(f"{target_name:<12} {model.name:<22} {ana['bias2']:<14.4f} {ana['variance']:<12.4f} {ana['eout']:<12.4f} {sim['eout']:<12.4f}")
+        # recompute sample curves for variance band
+        preds = np.zeros((500, len(x_test)))
+        for i in range(500):
+            X, y = sample_dataset(f, 2, sigma=0.0)
+            if len(X) < model.degree + 1:
+                continue
+            w = model.fit(X, y)
+            preds[i] = model.predict(w, x_test)
+        g_bar = preds.mean(axis=0)
+        std_curve = preds.std(axis=0)
 
-# =============================================================================
-# Plot 2 & 3: Learning Curves
-# =============================================================================
-# ภาพนี้แสดงค่า Ein (training error) และ Eout (generalization error)
-# เมื่อจำนวนตัวอย่าง n เพิ่มขึ้น สำหรับแต่ละโมเดลและแต่ละระดับ noise σ
-#
-# ที่ต้องการสังเกต:
-#   - ที่ n=2 Linear model มี Ein ≈ 0 (เส้นตรงผ่าน 2 จุดพอดี)
-#     แต่ Eout อาจสูงมาก โดยเฉพาะเมื่อมี noise (overfitting)
-#   - เมื่อ n เพิ่ม Ein มักจะเพิ่ม (ยากที่จะ fit ทุกจุด) แต่ Eout ลดลง
-#     เพราะ variance ลด
-#   - ระดับ noise สูงขึ้นทำให้ Eout สูงขึ้นประมาณ σ²
-#   - Constant model มีเส้นโค้งที่นิ่งกว่า สะท้อนว่า variance ต่ำ
-#   - แต่ละกราฟมี y-axis เป็นของตัวเอง เพราะ scale ของ error ต่างกันมาก
-#     (Linear model กับ noise สูงที่ n=2 มี Eout เป็นพัน)
-# =============================================================================
+        ax.plot(x_test, f(x_test), color='#6BA38C', linewidth=2, label='target')
+        ax.plot(x_test, g_bar, color='#5B8FB9', linewidth=2.5, label=r'$\bar{g}(x)$')
+        ax.fill_between(x_test, g_bar - std_curve, g_bar + std_curve,
+                        color='#5B8FB9', alpha=0.25, label='±1 std')
+
+        if row_idx == 0:
+            ax.set_title(model.name, fontsize=12, fontweight='bold')
+        if col_idx == 0:
+            ax.set_ylabel(target_info['label'], fontsize=12)
+        if row_idx == len(TARGETS) - 1:
+            ax.set_xlabel('x')
+        ax.set_xlim(-1, 1)
+        ax.set_ylim(-2, 2)
+        ax.grid(True, alpha=0.3)
+
+handles, labels = axes[0, 0].get_legend_handles_labels()
+fig.legend(handles, labels, loc='upper center', ncol=3, fontsize=10, bbox_to_anchor=(0.5, 0.98))
+fig.suptitle('Bias-Variance: average fit (blue) ±1 std band vs target (green)', fontsize=14, y=1.02)
+plt.tight_layout()
+plt.savefig(os.path.join(PLOTS_DIR, 'bias_variance_band.png'), dpi=150, bbox_inches='tight')
+print("Saved: plots/bias_variance_band.png")
+
+
+# --------------------------- Plot 3: Bias²(x) and Var(x) Curves ---------------------------
+fig, axes = plt.subplots(len(TARGETS), len(MODELS), figsize=(16, 10), sharex=True, sharey=True)
+
+for row_idx, (target_key, target_info) in enumerate(TARGETS.items()):
+    f = target_info['fn']
+    for col_idx, model in enumerate(MODELS):
+        ax = axes[row_idx, col_idx]
+        sim = results['bias_variance'][target_key][model.name]
+        x_test = np.array(sim['x_test'])
+
+        # recompute curves
+        preds = np.zeros((2000, len(x_test)))
+        for i in range(2000):
+            X, y = sample_dataset(f, 2, sigma=0.0)
+            if len(X) < model.degree + 1:
+                continue
+            w = model.fit(X, y)
+            preds[i] = model.predict(w, x_test)
+        g_bar = preds.mean(axis=0)
+        bias2_x = (g_bar - f(x_test)) ** 2
+        var_x = np.var(preds, axis=0)
+
+        ax.plot(x_test, bias2_x, color='#E07A5F', linewidth=2, label=r'$\mathrm{bias}^2(x)$')
+        ax.plot(x_test, var_x, color='#5B8FB9', linewidth=2, label=r'$\mathrm{var}(x)$')
+
+        if row_idx == 0:
+            ax.set_title(model.name, fontsize=12, fontweight='bold')
+        if col_idx == 0:
+            ax.set_ylabel(target_info['label'], fontsize=12)
+        if row_idx == len(TARGETS) - 1:
+            ax.set_xlabel('x')
+        ax.set_xlim(-1, 1)
+        ax.set_ylim(bottom=0)
+        ax.grid(True, alpha=0.3)
+
+handles, labels = axes[0, 0].get_legend_handles_labels()
+fig.legend(handles, labels, loc='upper center', ncol=2, fontsize=11, bbox_to_anchor=(0.5, 0.98))
+fig.suptitle(r'$\mathrm{bias}^2(x)$ (coral) and $\mathrm{var}(x)$ (blue)', fontsize=14, y=1.02)
+plt.tight_layout()
+plt.savefig(os.path.join(PLOTS_DIR, 'bias2_var_curves.png'), dpi=150, bbox_inches='tight')
+print("Saved: plots/bias2_var_curves.png")
+
+
+# --------------------------- Plot 4-6: Learning Curves ---------------------------
 n_list = [2, 3, 4, 5, 7, 10, 15, 20, 30, 50, 100]
 noise_levels = [0.0, 0.1, 0.3]
+noise_colors = {0.0: '#3B82F6', 0.1: '#10B981', 0.3: '#F59E0B'}
 
-for target_name, f in TARGETS.items():
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4), sharey=False)
+for target_key, target_info in TARGETS.items():
+    f = target_info['fn']
+    results['learning_curve'][target_key] = {}
+
+    fig, axes = plt.subplots(1, len(MODELS), figsize=(16, 4), sharey=False)
     for idx, model in enumerate(MODELS):
         ax = axes[idx]
+        results['learning_curve'][target_key][model.name] = {}
+
         for sigma in noise_levels:
-            Ein, Eout = learning_curve(f, model, n_list, sigma=sigma)
-            label = f"σ={sigma}"
-            ax.plot(n_list, Ein, '--o', label=f"Ein {label}", alpha=0.7)
-            ax.plot(n_list, Eout, '-s', label=f"Eout {label}", alpha=0.7)
+            Ein, Eout = learning_curve(f, model, n_list, sigma=sigma, n_datasets=3000)
+            results['learning_curve'][target_key][model.name][f'sigma_{sigma}'] = {
+                'n': n_list,
+                'Ein': [None if e is None else float(e) for e in Ein],
+                'Eout': [None if e is None else float(e) for e in Eout],
+            }
+
+            valid_n = [n for n, e in zip(n_list, Ein) if e is not None]
+            valid_Ein = [e for e in Ein if e is not None]
+            valid_Eout = [e for e in Eout if e is not None]
+
+            ax.plot(valid_n, valid_Ein, '--o', color=noise_colors[sigma], label=f'E_in σ={sigma}', alpha=0.8)
+            ax.plot(valid_n, valid_Eout, '-s', color=noise_colors[sigma], label=f'E_out σ={sigma}', alpha=0.8)
+
         ax.set_xlabel('n (number of samples)')
         ax.set_ylabel('Expected Error')
-        ax.set_title(f"{model.name}")
+        ax.set_title(model.name)
         ax.set_xscale('log')
         ax.legend(fontsize=7)
         ax.grid(True, alpha=0.3)
-    plt.suptitle(f"Learning Curves | Target: {target_name}", fontsize=14)
+
+    plt.suptitle(f"Learning Curves | Target: {target_info['label']}", fontsize=14)
     plt.tight_layout()
-    plt.savefig(f'plots/learning_curve_{safe_filename(target_name)}.png', dpi=150)
-    print(f"Saved: plots/learning_curve_{safe_filename(target_name)}.png")
+    filename = f"learning_curve_{safe_filename(target_info['title'])}.png"
+    plt.savefig(os.path.join(PLOTS_DIR, filename), dpi=150, bbox_inches='tight')
+    print(f"Saved: plots/{filename}")
+
+
+# --------------------------- Save numerical results ---------------------------
+with open(RESULTS_JSON, 'w', encoding='utf-8') as f:
+    json.dump(results, f, indent=2, ensure_ascii=False)
+print(f"\nSaved numerical results: {RESULTS_JSON}")
+
+
+# --------------------------- Summary Table ---------------------------
+print("\n" + "=" * 80)
+print("Summary: Bias-Variance Decomposition (N=2, σ=0)")
+print("=" * 80)
+print(f"{'Target':<12} {'Model':<12} {'bias²':<10} {'variance':<10} {'Eout':<10}")
+print("-" * 80)
+for target_key, target_info in TARGETS.items():
+    for model in MODELS:
+        r = results['bias_variance'][target_key][model.name]
+        print(f"{target_info['title']:<12} {model.name:<12} {r['bias2']:<10.4f} {r['variance']:<10.4f} {r['eout']:<10.4f}")
 
 print("\nDone!")
-
-# --------------------------- Show all figures interactively ---------------------------
-# เปิดหน้าต่างแสดงกราฟทั้งหมดทันทีที่รันโปรแกรม (นอกเหนือจากการ save ไฟล์ไว้ใน plots/)
-plt.show()
