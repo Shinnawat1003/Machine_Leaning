@@ -306,6 +306,7 @@
             x2: x => x * x,
         };
         const MODEL_NAMES = ['constant', 'linear', 'linear through origin'];
+        const MIN_POINTS = [1, 2, 1];  // constant, linear, linear-through-origin
         const COLORS = {
             target: '#6BA38C',
             fit: '#5B8FB9',
@@ -474,6 +475,7 @@
             document.getElementById('gen-ensemble-controls').classList.toggle('hidden', tab === 'eio' || tab === 'cmp');
             document.getElementById('gen-resample').classList.toggle('hidden', tab !== 'eio' && tab !== 'cmp');
             if (tab !== 'avg' && tab !== 'bias' && tab !== 'var') resetGenAccum();
+            autoGenSimulate();
             renderGen();
         }
 
@@ -484,7 +486,47 @@
             document.getElementById('lc-compare-controls').classList.toggle('hidden', tab !== 'compare');
             document.getElementById('lc-run-controls').classList.toggle('hidden', tab !== 'practice');
             resetLcAccum();
+            autoLcSimulate();
             renderLc();
+        }
+
+        function autoGenSimulate() {
+            if (genTab === 'avg' || genTab === 'bias' || genTab === 'var') {
+                if (genAccum.count < 50) {
+                    addGenDatasets(50 - genAccum.count);
+                }
+            }
+        }
+
+        function autoLcSimulate() {
+            if (lcTab !== 'practice') return;
+            const f = TARGETS[document.getElementById('lc-target').value];
+            const M = +document.getElementById('lc-model').value;
+            const sigma = +document.getElementById('lc-sigma').value / 100;
+            const targetCount = 15;
+            while (lcAccum.count < targetCount) {
+                const batch = Math.min(targetCount - lcAccum.count, Math.max(1, Math.floor(lcAccum.count / 5) + 1));
+                for (let j = 0; j < LC_N.length; j++) {
+                    const nn = LC_N[j];
+                    if (nn < MIN_POINTS[M]) continue;
+                    const s = lcAccum.sum[j], s2 = lcAccum.sum2[j];
+                    let eSum = 0;
+                    for (let t = 0; t < batch; t++) {
+                        const pts = sampleDS(f, nn, sigma, lcSeed * 1000000 + nn * 7919 + (lcAccum.count + t) * 101 + 555);
+                        const m = fitModel(pts, M);
+                        const pred = pts.map(p => m.predict(p.x));
+                        eSum += mse(pts.map(p => p.y), pred);
+                        const xs = linspace(-1, 1, 100);
+                        for (let i = 0; i < 100; i++) {
+                            const yp = m.predict(xs[i]);
+                            if (!s[i]) { s[i] = 0; s2[i] = 0; }
+                            s[i] += yp; s2[i] += yp * yp;
+                        }
+                    }
+                    lcAccum.sumEin[j] += eSum;
+                }
+                lcAccum.count += batch;
+            }
         }
 
         // ===================== Plot Helpers =====================
@@ -560,7 +602,7 @@
 
             for (let j = 0; j < k; j++) {
                 const pts = sampleDS(f, n, sigma, genSeed * 100000 + genAccum.count);
-                if (pts.length < M + 1) continue;
+                if (pts.length < MIN_POINTS[M]) continue;
                 const m = fitModel(pts, M);
                 for (let i = 0; i < GRID_X.length; i++) {
                     const yp = m.predict(GRID_X[i]);
@@ -813,7 +855,7 @@
             const sigma = +document.getElementById('lc-sigma').value / 100;
             const out = [];
             for (const nn of LC_N) {
-                if (nn < M + 1) { out.push({ N: nn, ein: null, eout: null, bias2: null }); continue; }
+                if (nn < MIN_POINTS[M]) { out.push({ N: nn, ein: null, eout: null, bias2: null }); continue; }
                 const s = [], s2 = [];
                 let sumEin = 0;
                 for (let t = 0; t < T; t++) {
@@ -943,7 +985,7 @@
                 let run = refA;
                 if (lcTab === 'practice' && lcAccum.count > 0) {
                     run = LC_N.map((nn, j) => {
-                        if (nn < M + 1) return { N: nn, ein: null, eout: null };
+                        if (nn < MIN_POINTS[M]) return { N: nn, ein: null, eout: null };
                         const s = lcAccum.sum[j], s2 = lcAccum.sum2[j];
                         let b = 0, v = 0;
                         for (let i = 0; i < s.length; i++) {
@@ -1013,10 +1055,11 @@
         });
         document.getElementById('gen-sigma').addEventListener('change', () => {
             resetGenAccum();
+            autoGenSimulate();
             renderGen();
         });
-        document.getElementById('gen-target').addEventListener('change', () => { resetGenAccum(); genSeed++; renderGen(); });
-        document.getElementById('gen-model').addEventListener('change', () => { resetGenAccum(); renderGen(); });
+        document.getElementById('gen-target').addEventListener('change', () => { resetGenAccum(); genSeed++; autoGenSimulate(); renderGen(); });
+        document.getElementById('gen-model').addEventListener('change', () => { resetGenAccum(); autoGenSimulate(); renderGen(); });
         document.getElementById('gen-resample').addEventListener('click', () => { genSeed++; renderGen(); });
         document.getElementById('gen-add').addEventListener('click', () => { addGenDatasets(1); renderGen(); });
         document.getElementById('gen-play').addEventListener('click', () => {
@@ -1025,7 +1068,7 @@
             document.getElementById('gen-play').textContent = 'Pause';
             genPlayTick();
         });
-        document.getElementById('gen-reset').addEventListener('click', () => { stopGenPlay(); resetGenAccum(); genSeed++; renderGen(); });
+        document.getElementById('gen-reset').addEventListener('click', () => { stopGenPlay(); resetGenAccum(); genSeed++; autoGenSimulate(); renderGen(); });
 
         let genPlaying = false;
         let genTimer = null;
@@ -1049,18 +1092,18 @@
             document.getElementById('lc-sigma-val').textContent = (+e.target.value / 100).toFixed(2);
             if (lcTab !== 'practice') renderLc();
         });
-        document.getElementById('lc-sigma').addEventListener('change', () => { resetLcAccum(); renderLc(); });
-        document.getElementById('lc-target').addEventListener('change', () => { resetLcAccum(); lcSeed++; renderLc(); });
-        document.getElementById('lc-model').addEventListener('change', () => { resetLcAccum(); renderLc(); });
-        document.getElementById('lc-mA').addEventListener('change', () => { resetLcAccum(); renderLc(); });
-        document.getElementById('lc-mB').addEventListener('change', () => { resetLcAccum(); renderLc(); });
+        document.getElementById('lc-sigma').addEventListener('change', () => { resetLcAccum(); autoLcSimulate(); renderLc(); });
+        document.getElementById('lc-target').addEventListener('change', () => { resetLcAccum(); lcSeed++; autoLcSimulate(); renderLc(); });
+        document.getElementById('lc-model').addEventListener('change', () => { resetLcAccum(); autoLcSimulate(); renderLc(); });
+        document.getElementById('lc-mA').addEventListener('change', () => { resetLcAccum(); autoLcSimulate(); renderLc(); });
+        document.getElementById('lc-mB').addEventListener('change', () => { resetLcAccum(); autoLcSimulate(); renderLc(); });
         document.getElementById('lc-play').addEventListener('click', () => {
-            if (lcPlaying) { stopLcPlay(); return; }
+            if (lcPlaying) { stopGenPlay(); return; }
             lcPlaying = true;
             document.getElementById('lc-play').textContent = 'Pause';
             lcPlayTick();
         });
-        document.getElementById('lc-reset').addEventListener('click', () => { stopLcPlay(); resetLcAccum(); lcSeed++; renderLc(); });
+        document.getElementById('lc-reset').addEventListener('click', () => { stopLcPlay(); resetLcAccum(); lcSeed++; autoLcSimulate(); renderLc(); });
 
         function stopLcPlay() {
             lcPlaying = false;
@@ -1075,7 +1118,7 @@
             const batch = Math.max(1, Math.floor(lcAccum.count / 10) + 1);
             for (let j = 0; j < LC_N.length; j++) {
                 const nn = LC_N[j];
-                if (nn < M + 1) continue;
+                if (nn < MIN_POINTS[M]) continue;
                 const s = lcAccum.sum[j], s2 = lcAccum.sum2[j];
                 let eSum = 0;
                 for (let t = 0; t < batch; t++) {
@@ -1113,7 +1156,7 @@
             resetGenAccum();
             resetLcAccum();
             renderGen();
-            renderMathInElement(document.body, KATEX_OPTS);
+            try { renderMathInElement(document.body, KATEX_OPTS); } catch (e) {}
         });
     </script>
 </body>
