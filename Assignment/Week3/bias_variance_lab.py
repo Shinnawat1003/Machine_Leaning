@@ -94,7 +94,7 @@ def gD_linear_origin(x, x1, x2, f):
     return w * x
 
 # --------------------------- Analytical Bias/Variance ---------------------------
-def analytical_constant(f, n_x=200000):
+def analytical_constant(f, n_x=50000):
     """
     หาค่า bias^2 และ variance ของ constant model แบบ analytical
     ใช้ numerical integration (trapezoidal rule) บนกริดหนาแน่น
@@ -113,13 +113,13 @@ def analytical_constant(f, n_x=200000):
     return {'bias2': bias2, 'variance': variance, 'eout': bias2 + variance,
             'g_bar': lambda x: np.full(np.asarray(x).shape, g_bar)}
 
-def analytical_model(f, model, n_x=400, n_mc=200000, seed_offset=0):
+def analytical_model(f, model, n_x=400, n_mc=50000, seed_offset=0):
     """
     หาค่า bias^2 และ variance แบบ numerical integration เหนือ x1, x2
     ใช้ Monte Carlo integration สำหรับ E_D และ Riemann sum สำหรับ E_x
     """
     if model == ConstantModel:
-        return analytical_constant(f, n_x=200000)
+        return analytical_constant(f, n_x=50000)
 
     rng = np.random.default_rng(123 + seed_offset)
     xs = np.linspace(-1, 1, n_x)
@@ -248,7 +248,7 @@ def safe_filename(name):
 # ใส่ noise สุ่ม (Gaussian, std = NOISE_STD) ลงในตัวอย่างตอนสร้าง hypothesis เพื่อจำลอง
 # สถานการณ์ noisy target ตามที่โจทย์ข้อ 3 ให้ทดลองเพิ่มเติม
 # =============================================================================
-NOISE_STD = 0.2  # ระดับ noise ที่ใส่ตอน fit ตัวอย่างสำหรับภาพนี้ (ปรับได้)
+NOISE_STD = 0  # ระดับ noise ที่ใส่ตอน fit ตัวอย่างสำหรับภาพนี้ (ปรับได้)
 
 MODEL_TITLE = {
     'Constant': 'constant',
@@ -256,12 +256,15 @@ MODEL_TITLE = {
     'Linear through origin': 'linear_origin',
 }
 TARGET_TITLE = {
-    'sin(pi*x)': 'sin(\\pi x)',
-    'x^2': 'x^2',
+    'sin(pi*x)': r'$\sin(\pi x)$',
+    'x^2': r'$x^2$',
 }
 
-def simulate_mean_std(f, model, sigma, n_samples=2, n_datasets=20000, n_test=300):
-    """หา g_bar(x) และ std(x) ของ hypothesis จาก simulation โดยใส่ noise ตอน fit"""
+def simulate_band(f, model, sigma, n_samples=2, n_datasets=20000, n_test=300, lo_pct=25, hi_pct=85):
+    """หา g_bar(x) (mean) และแถบการกระจาย (lo/hi percentile) ของ hypothesis จาก simulation
+    ใช้ percentile แทน mean +/- std เพราะ linear model แบบ fit 2 จุด มีโอกาสได้ slope ที่ชันมาก
+    เวลา x1,x2 สุ่มมาใกล้กัน (denominator ~ 0) ทำให้ std ถูกดึงสูงผิดปกติจนแถบเต็มกราฟ (heavy-tailed)
+    percentile ทนต่อ outlier แบบนี้ได้ดีกว่า และให้แถบที่สะท้อน "การกระจายทั่วไป" ได้ตรงกว่า"""
     x_test = np.linspace(-1, 1, n_test)
     preds = np.zeros((n_datasets, n_test))
     for i in range(n_datasets):
@@ -269,7 +272,10 @@ def simulate_mean_std(f, model, sigma, n_samples=2, n_datasets=20000, n_test=300
         y = f(X) + np.random.normal(0, sigma, n_samples)
         params = model.fit(X, y)
         preds[i] = model.predict(params, x_test)
-    return x_test, preds.mean(axis=0), preds.std(axis=0)
+    mean_curve = preds.mean(axis=0)
+    lo_curve = np.percentile(preds, lo_pct, axis=0)
+    hi_curve = np.percentile(preds, hi_pct, axis=0)
+    return x_test, mean_curve, lo_curve, hi_curve
 
 x_plot = np.linspace(-1, 1, 500)
 fig, axes = plt.subplots(2, 6, figsize=(20, 7), sharex=True, sharey=True)
@@ -278,13 +284,13 @@ for row_idx, (target_name, f) in enumerate(TARGETS.items()):
     for m_idx, model in enumerate(MODELS):
         ax_lines = axes[row_idx, m_idx * 2]
         ax_band = axes[row_idx, m_idx * 2 + 1]
-        title = f"Target: {TARGET_TITLE[target_name]} — Model: {MODEL_TITLE[model.name]}"
+        title = f"{TARGET_TITLE[target_name]} — Model: {MODEL_TITLE[model.name]}"
 
-        x_test, mean_curve, std_curve = simulate_mean_std(f, model, sigma=NOISE_STD)
+        x_test, mean_curve, lo_curve, hi_curve = simulate_band(f, model, sigma=NOISE_STD)
 
         for ax in (ax_lines, ax_band):
             ax.plot(x_plot, f(x_plot), color='green', linewidth=2)
-            ax.set_title(title, fontsize=9)
+            ax.set_title(title, fontsize=10)
             ax.set_xlim(-1, 1)
             ax.grid(True, alpha=0.3)
 
@@ -296,9 +302,9 @@ for row_idx, (target_name, f) in enumerate(TARGETS.items()):
             ax_lines.plot(x_plot, model.predict(params, x_plot), color='black', alpha=0.15, linewidth=0.6)
         ax_lines.plot(x_test, mean_curve, color='red', linestyle='--', linewidth=2)
 
-        # กราฟขวา: variance เป็นแถบสีแดง (mean ± std)
+        # กราฟขวา: variance เป็นแถบสีแดง (10th-90th percentile, กันแถบระเบิดจาก outlier)
         ax_band.plot(x_test, mean_curve, color='red', linestyle='--', linewidth=2)
-        ax_band.fill_between(x_test, mean_curve - std_curve, mean_curve + std_curve,
+        ax_band.fill_between(x_test, np.clip(lo_curve, -2, 2), np.clip(hi_curve, -2, 2),
                               color='red', alpha=0.3)
 
 for ax in axes[:, 0]:
