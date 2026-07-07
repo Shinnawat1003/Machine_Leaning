@@ -228,46 +228,93 @@ for target_name, f in TARGETS.items():
 # สร้างโฟลเดอร์ plots สำหรับเก็บภาพที่ visualize ผลลัพธ์
 os.makedirs('plots', exist_ok=True)
 
+def safe_filename(name):
+    """แปลงชื่อ target ให้เป็นชื่อไฟล์ที่ปลอดภัยทั้งบน Windows/Linux/Mac
+    (Windows ห้ามใช้ < > : " / \\ | ? * ในชื่อไฟล์)"""
+    for ch, repl in [(' ', '_'), ('^', ''), ('*', ''), ('(', ''), (')', ''),
+                      ('<', ''), ('>', ''), (':', ''), ('"', ''),
+                      ('/', ''), ('\\', ''), ('|', ''), ('?', '')]:
+        name = name.replace(ch, repl)
+    return name
+
+
 # =============================================================================
-# Plot 1: Average Fit Visualization
+# Plot 1: Average Fit Visualization (paired: raw hypothesis lines + variance band)
 # =============================================================================
-# ภาพนี้แสดงความสัมพันธ์ระหว่าง:
-#   - ฟังก์ชันเป้าหมาย f(x) (เส้นเขียว)
-#   - แบบจำลองเฉลี่ย g_bar(x) จาก simulation (เส้นประแดง)
-#   - ตัวอย่าง hypothesis จากชุดข้อมูลสุ่ม 20 ชุด (เส้นสีเทาบาง ๆ)
-#
-# ที่ต้องการสังเกต:
-#   - ความกว้างของเส้นสีเทา = variance ของโมเดล
-#   - ระยะห่างระหว่างเส้นแดงกับเส้นเขียว = bias
-#   - Linear model กับ sin(pi*x) จะเห็นชัดว่า variance สูงมาก
-#     เส้นสีเทากระจายกว้าง แต่เส้นแดงใกล้เคียงเป้าหมาย (bias ต่ำ)
-#   - Constant model กับ x^2 เส้นสีเทาจะแน่น (variance ต่ำ)
-#     แต่เส้นแดงห่างจากเป้าหมายบางจุด (bias สูงกว่า)
+# สำหรับแต่ละ (target, model) วาด 2 กราฟคู่กัน:
+#   - กราฟซ้าย : เส้นเป้าหมาย f(x) (เขียว) + เส้น hypothesis จากชุดข้อมูลสุ่มหลายชุด (เทาบาง ๆ)
+#                + เส้นเฉลี่ย g_bar(x) (แดงประ) -> ให้เห็น "variance" เป็นความกระจายของเส้นเทา
+#   - กราฟขวา  : เส้นเดียวกัน แต่แสดง variance เป็นแถบสีแดงโปร่งแสง (mean ± std) แทนเส้นเทา
+# ใส่ noise สุ่ม (Gaussian, std = NOISE_STD) ลงในตัวอย่างตอนสร้าง hypothesis เพื่อจำลอง
+# สถานการณ์ noisy target ตามที่โจทย์ข้อ 3 ให้ทดลองเพิ่มเติม
 # =============================================================================
-fig, axes = plt.subplots(2, 3, figsize=(15, 8), sharex=True, sharey=True)
+NOISE_STD = 0.2  # ระดับ noise ที่ใส่ตอน fit ตัวอย่างสำหรับภาพนี้ (ปรับได้)
+
+MODEL_TITLE = {
+    'Constant': 'constant',
+    'Linear': 'linear',
+    'Linear through origin': 'linear_origin',
+}
+TARGET_TITLE = {
+    'sin(pi*x)': 'sin(\\pi x)',
+    'x^2': 'x^2',
+}
+
+def simulate_mean_std(f, model, sigma, n_samples=2, n_datasets=20000, n_test=300):
+    """หา g_bar(x) และ std(x) ของ hypothesis จาก simulation โดยใส่ noise ตอน fit"""
+    x_test = np.linspace(-1, 1, n_test)
+    preds = np.zeros((n_datasets, n_test))
+    for i in range(n_datasets):
+        X = np.random.uniform(-1, 1, n_samples)
+        y = f(X) + np.random.normal(0, sigma, n_samples)
+        params = model.fit(X, y)
+        preds[i] = model.predict(params, x_test)
+    return x_test, preds.mean(axis=0), preds.std(axis=0)
+
+x_plot = np.linspace(-1, 1, 500)
+fig, axes = plt.subplots(2, 6, figsize=(20, 7), sharex=True, sharey=True)
+
 for row_idx, (target_name, f) in enumerate(TARGETS.items()):
-    for col_idx, model in enumerate(MODELS):
-        ax = axes[row_idx, col_idx]
-        x_plot = np.linspace(-1, 1, 500)
-        ax.plot(x_plot, f(x_plot), 'g-', linewidth=2, label='Target f(x)')
+    for m_idx, model in enumerate(MODELS):
+        ax_lines = axes[row_idx, m_idx * 2]
+        ax_band = axes[row_idx, m_idx * 2 + 1]
+        title = f"Target: {TARGET_TITLE[target_name]} — Model: {MODEL_TITLE[model.name]}"
 
-        # วาด g_bar จาก simulation
-        res = results[target_name][model.name]['simulation']
-        ax.plot(res['x_test'], res['g_bar'], 'r--', linewidth=2, label='g_bar(x) (sim)')
+        x_test, mean_curve, std_curve = simulate_mean_std(f, model, sigma=NOISE_STD)
 
-        # วาดตัวอย่าง hypothesis บางส่วน เพื่อแสดง variance
-        for _ in range(20):
+        for ax in (ax_lines, ax_band):
+            ax.plot(x_plot, f(x_plot), color='green', linewidth=2)
+            ax.set_title(title, fontsize=9)
+            ax.set_xlim(-1, 1)
+            ax.grid(True, alpha=0.3)
+
+        # กราฟซ้าย: เส้น hypothesis รายชุดข้อมูล (แสดง variance เป็นความกระจายของเส้น)
+        for _ in range(60):
             X = np.random.uniform(-1, 1, 2)
-            y = f(X)
+            y = f(X) + np.random.normal(0, NOISE_STD, 2)
             params = model.fit(X, y)
-            ax.plot(x_plot, model.predict(params, x_plot), 'k-', alpha=0.2, linewidth=0.5)
+            ax_lines.plot(x_plot, model.predict(params, x_plot), color='black', alpha=0.15, linewidth=0.6)
+        ax_lines.plot(x_test, mean_curve, color='red', linestyle='--', linewidth=2)
 
-        ax.set_title(f"{target_name} | {model.name}")
-        ax.set_xlim(-1, 1)
-        ax.legend(fontsize=7)
-        ax.grid(True, alpha=0.3)
+        # กราฟขวา: variance เป็นแถบสีแดง (mean ± std)
+        ax_band.plot(x_test, mean_curve, color='red', linestyle='--', linewidth=2)
+        ax_band.fill_between(x_test, mean_curve - std_curve, mean_curve + std_curve,
+                              color='red', alpha=0.3)
 
-plt.tight_layout()
+for ax in axes[:, 0]:
+    ax.set_ylabel('y')
+for ax in axes[-1, :]:
+    ax.set_xlabel('x')
+
+axes[0, 0].set_ylim(-2, 2)
+
+target_handle = plt.Line2D([0], [0], color='green', lw=2, label='Target')
+average_handle = plt.Line2D([0], [0], color='red', lw=2, ls='--', label='Average')
+fig.legend(handles=[target_handle, average_handle], loc='upper center', ncol=2,
+           fontsize=10, bbox_to_anchor=(0.5, 1.03))
+fig.suptitle(f"Bias-Variance Decomposition (Two Samples, Noise Std: {NOISE_STD})", fontsize=16)
+
+plt.tight_layout(rect=[0, 0, 1, 0.93])
 plt.savefig('plots/average_fit.png', dpi=150)
 print("\nSaved: plots/average_fit.png")
 
@@ -319,7 +366,11 @@ for target_name, f in TARGETS.items():
         ax.grid(True, alpha=0.3)
     plt.suptitle(f"Learning Curves | Target: {target_name}", fontsize=14)
     plt.tight_layout()
-    plt.savefig(f'plots/learning_curve_{target_name.replace(" ", "_").replace("^", "")}.png', dpi=150)
-    print(f"Saved: plots/learning_curve_{target_name.replace(' ', '_').replace('^', '')}.png")
+    plt.savefig(f'plots/learning_curve_{safe_filename(target_name)}.png', dpi=150)
+    print(f"Saved: plots/learning_curve_{safe_filename(target_name)}.png")
 
 print("\nDone!")
+
+# --------------------------- Show all figures interactively ---------------------------
+# เปิดหน้าต่างแสดงกราฟทั้งหมดทันทีที่รันโปรแกรม (นอกเหนือจากการ save ไฟล์ไว้ใน plots/)
+plt.show()
