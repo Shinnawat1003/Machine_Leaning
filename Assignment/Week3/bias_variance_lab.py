@@ -210,10 +210,10 @@ def analytical_model(f, model, n_x=400, n_mc=200000, seed_offset=0):
 def simulate_bias_variance(f, model, n_samples=2, n_datasets=50000, n_test=300, sigma=0.0):
     """
     Monte Carlo estimate ของ bias² และ variance
-    n_samples  = 2:      ขนาดชุด train ตามโจทย์ (ยกเว้น learning curve)
+    n_samples  = 2:      ขนาดชุด train (ยกเว้น learning curve)
     n_datasets = 50,000: จำนวนชุดข้อมูล D สำหรับประมาณ E_D
     n_test     = 300:    จำนวนจุดทดสอบบนช่วง [-1,1]
-    sigma      = 0.0:    ระดับ noise (0 = ไม่มี noise ในโจทย์หลัก)
+    sigma      = 0.0:    ระดับ noise (0 = ไม่มี noise)
     """
     x_test = np.linspace(-1, 1, n_test)
     preds = np.zeros((n_datasets, n_test))
@@ -370,7 +370,10 @@ learning_results = {}
 
 for target_name, f in TARGETS.items():
     learning_results[target_name] = {}
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4), sharey=False)
+    # sharey=True เพื่อให้ทั้ง 3 model ใช้สเกลแกน y เดียวกัน
+    # สำหรับ x^2 ใช้สูงสุด 0.7 ส่วน sin(pi*x) ใช้ 1.0
+    y_max = 0.7 if target_name == 'x^2' else 1.0
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4), sharey=True)
     for idx, model in enumerate(MODELS):
         ax = axes[idx]
         learning_results[target_name][model.name] = {}
@@ -381,13 +384,18 @@ for target_name, f in TARGETS.items():
                 'Ein': [float(e) for e in Ein],
                 'Eout': [float(e) for e in Eout],
             }
+            # ตัดค่าที่เกิน y_max ออกจากการพล็อต เพื่อไม่ให้กราฟบานออกไปถึง 1000
+            Ein_plot = np.clip(Ein, 0, y_max)
+            Eout_plot = np.clip(Eout, 0, y_max)
             label = f"σ={sigma}"
-            ax.plot(n_list, Ein, '--', color=noise_colors[sigma], label=f"Ein {label}", alpha=0.7)
-            ax.plot(n_list, Eout, '-', color=noise_colors[sigma], label=f"Eout {label}", alpha=0.7)
+            ax.plot(n_list, Ein_plot, '--', color=noise_colors[sigma], label=f"Ein {label}", alpha=0.7)
+            ax.plot(n_list, Eout_plot, '-', color=noise_colors[sigma], label=f"Eout {label}", alpha=0.7)
         ax.set_xlabel('n (number of samples)')
         ax.set_ylabel('Expected Error')
         ax.set_title(f"{model.name}")
         ax.set_xscale('log')
+        ax.set_ylim(0, y_max)  # ล็อคแกน y ทั้ง 3 model ให้อยู่ที่ 0 ถึง y_max
+        ax.tick_params(labelleft=True)  # แสดงตัวเลขแกน y ในทุก subplot
         ax.legend(fontsize=7)
         ax.grid(True, alpha=0.3)
     plt.suptitle(f"Learning Curves | Target: {target_name}", fontsize=14)
