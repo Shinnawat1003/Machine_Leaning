@@ -99,12 +99,16 @@ for row, (target_name, f) in enumerate(TARGETS.items()):
             Ein, Eout = learning_curve(f, model, N_LIST, sigma=sigma)
             ax.plot(N_LIST, np.clip(Ein, 0, ymax), '--', color=COLORS[sigma], label=f'Ein σ={sigma}', alpha=0.7)
             ax.plot(N_LIST, np.clip(Eout, 0, ymax), '-', color=COLORS[sigma], label=f'Eout σ={sigma}', alpha=0.7)
-        ax.set_xlabel('n')
-        ax.set_ylabel('Expected Error')
+        if row == 1:
+            ax.set_xlabel('n')
+        if col == 0:
+            ax.set_ylabel('Expected Error')
+            ax.tick_params(labelleft=True)
+        else:
+            ax.tick_params(labelleft=False)
         ax.set_title(f'{target_name} | {model}')
         ax.set_xscale('log')
         ax.set_ylim(0, ymax)
-        ax.tick_params(labelleft=True)
         ax.legend(fontsize=9, loc='upper center')
         ax.grid(True, alpha=0.3)
 plt.tight_layout()
