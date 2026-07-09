@@ -371,8 +371,8 @@ learning_results = {}
 for target_name, f in TARGETS.items():
     learning_results[target_name] = {}
     # sharey=True เพื่อให้ทั้ง 3 model ใช้สเกลแกน y เดียวกัน
-    # สำหรับ x^2 ใช้สูงสุด 0.7 ส่วน sin(pi*x) ใช้ 1.0
-    y_max = 0.7 if target_name == 'x^2' else 1.0
+    # สำหรับ x^2 ใช้สูงสุด 0.6 ส่วน sin(pi*x) ใช้ 1.0
+    y_max = 0.6 if target_name == 'x^2' else 1.0
     fig, axes = plt.subplots(1, 3, figsize=(15, 4), sharey=True)
     for idx, model in enumerate(MODELS):
         ax = axes[idx]

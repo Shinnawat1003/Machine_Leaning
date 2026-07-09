@@ -4,12 +4,16 @@ Bias-Variance Decomposition Lab (Compact Version)
 Models: Constant h=b | Linear h=w0+w1x | Linear-thru-origin h=wx | n=2 ตัวอย่าง/dataset
 """
 
+import os
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 np.random.seed(42)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PLOTS_DIR = os.path.join(BASE_DIR, 'plots')
+os.makedirs(PLOTS_DIR, exist_ok=True)
 
 TARGETS = {
     'sin(pi*x)': lambda x: np.sin(np.pi * x),
@@ -121,30 +125,35 @@ for row, (target_name, f) in enumerate(TARGETS.items()):
         ax.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('average_fit.png', dpi=150)
-print("\nSaved: average_fit.png")
+plt.savefig(os.path.join(PLOTS_DIR, 'average_fit.png'), dpi=150)
+print('\nSaved: plots/average_fit.png')
 
 # --------------------------- Plot: learning curves (Ein/Eout vs n) ---------------------------
 n_list = [2, 3, 5, 7, 10, 15, 20, 30, 50, 100]
 noise_levels = [0.0, 0.1, 0.3]
 noise_colors = {0.0: '#3B82F6', 0.1: '#10B981', 0.3: '#F59E0B'}
 
-fig2, axes2 = plt.subplots(2, 3, figsize=(15, 8), sharex=True)
+YMAX = {'x^2': 0.6, 'sin(pi*x)': 1.0}
+fig2, axes2 = plt.subplots(2, 3, figsize=(15, 8), sharex=True, sharey='row')
 for row, (target_name, f) in enumerate(TARGETS.items()):
+    ymax = YMAX[target_name]
     for col, model_name in enumerate(MODELS):
         ax = axes2[row, col]
         fit_fn, predict_fn = MODELS[model_name]
         for sigma in noise_levels:
             Ein, Eout = learning_curve(f, fit_fn, predict_fn, n_list, sigma=sigma)
-            ax.plot(n_list, Ein, '--', color=noise_colors[sigma], alpha=0.7, label=f'Ein σ={sigma}')
-            ax.plot(n_list, Eout, '-', color=noise_colors[sigma], alpha=0.7, label=f'Eout σ={sigma}')
+            ax.plot(n_list, np.clip(Ein, 0, ymax), '--', color=noise_colors[sigma], alpha=0.7, label=f'Ein σ={sigma}')
+            ax.plot(n_list, np.clip(Eout, 0, ymax), '-', color=noise_colors[sigma], alpha=0.7, label=f'Eout σ={sigma}')
         ax.set_xscale('log')
+        ax.set_ylim(0, ymax)
+        ax.tick_params(labelleft=True)
         ax.set_title(f"{target_name} | {model_name}", fontsize=8)
         ax.set_xlabel('n')
+        ax.set_ylabel('Expected Error')
         ax.legend(fontsize=5)
         ax.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('learning_curve.png', dpi=150)
-print("Saved: learning_curve.png")
-print("Done!")
+plt.savefig(os.path.join(PLOTS_DIR, 'learning_curve.png'), dpi=150)
+print('Saved: plots/learning_curve.png')
+print('Done!')

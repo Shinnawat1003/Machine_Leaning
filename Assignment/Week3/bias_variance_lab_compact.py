@@ -1,4 +1,4 @@
-import json, os
+import os
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -21,7 +21,7 @@ MODELS = ['Constant', 'Linear', 'Linear through origin']
 NOISE = [0.0, 0.1, 0.3]
 COLORS = {0.0: '#3B82F6', 0.1: '#10B981', 0.3: '#F59E0B'}
 N_LIST = [2, 3, 4, 5, 7, 10, 15, 20, 30, 50, 100]
-YMAX = {'x^2': 0.7, 'sin(pi*x)': 1.0}
+YMAX = {'x^2': 0.6, 'sin(pi*x)': 1.0}
 
 
 def fit_predict(model, X, y, xq):
@@ -62,7 +62,6 @@ def learning_curve(f, model, n_list, sigma=0.0, n_datasets=3000, n_test=1000):
     return Ein, Eout
 
 
-results = {'bias_variance': {}, 'learning_curve': {}}
 print('=' * 80)
 print('Summary Table')
 print('=' * 80)
@@ -73,11 +72,8 @@ x_plot = np.linspace(-1, 1, 500)
 fig_avg, axes_avg = plt.subplots(2, 3, figsize=(15, 8), sharex=True, sharey=True)
 
 for row, (target_name, f) in enumerate(TARGETS.items()):
-    results['bias_variance'][target_name] = {}
-    results['learning_curve'][target_name] = {}
     for col, model in enumerate(MODELS):
         sim = simulate(f, model)
-        results['bias_variance'][target_name][model] = sim
         print(f"{target_name:<12} {model:<22} {sim['bias2']:<10.4f} {sim['variance']:<10.4f} {sim['eout']:<10.4f}")
 
         ax = axes_avg[row, col]
@@ -102,10 +98,8 @@ for target_name, f in TARGETS.items():
     ymax = YMAX[target_name]
     fig, axes = plt.subplots(1, 3, figsize=(15, 4), sharey=True)
     for ax, model in zip(axes, MODELS):
-        results['learning_curve'][target_name][model] = {}
         for sigma in NOISE:
             Ein, Eout = learning_curve(f, model, N_LIST, sigma=sigma)
-            results['learning_curve'][target_name][model][f'sigma_{sigma}'] = {'n': N_LIST, 'Ein': Ein, 'Eout': Eout}
             ax.plot(N_LIST, np.clip(Ein, 0, ymax), '--', color=COLORS[sigma], label=f'Ein σ={sigma}', alpha=0.7)
             ax.plot(N_LIST, np.clip(Eout, 0, ymax), '-', color=COLORS[sigma], label=f'Eout σ={sigma}', alpha=0.7)
         ax.set_xlabel('n (number of samples)')
@@ -122,6 +116,4 @@ for target_name, f in TARGETS.items():
     plt.savefig(os.path.join(PLOTS_DIR, filename), dpi=150)
     print(f"Saved: plots/{filename}")
 
-with open(os.path.join(BASE_DIR, 'results_compact.json'), 'w', encoding='utf-8') as f:
-    json.dump(results, f, indent=2)
 print('\nDone!')
