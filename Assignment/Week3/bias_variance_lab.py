@@ -23,7 +23,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-np.random.seed(42)
+np.random.seed(42)  # ล็อค seed เพื่อให้ผลการสุ่มทดซ้ำได้ (reproducible)
 
 # --------------------------- Paths ---------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -62,6 +62,7 @@ class ConstantModel:
 
     @staticmethod
     def fit(X, y):
+        # ค่า b ที่ลด MSE ที่สุดคือค่าเฉลี่ยของ y
         return {'b': np.mean(y)}
 
     @staticmethod
@@ -76,6 +77,7 @@ class LinearModel:
     @staticmethod
     def fit(X, y):
         X = np.asarray(X)
+        # design matrix: คอลัมน์แรกเป็น 1 (bias/w0), คอลัมน์ที่สองเป็น x (w1)
         Phi = np.column_stack([np.ones(len(X)), X])
         w = np.linalg.lstsq(Phi, y, rcond=None)[0]
         return {'w0': w[0], 'w1': w[1]}
@@ -92,6 +94,7 @@ class LinearOriginModel:
     @staticmethod
     def fit(X, y):
         X = np.asarray(X).reshape(-1, 1)
+        # ไม่มี bias term: จึง fit แค่ w*x ผ่าน origin เท่านั้น
         w = np.linalg.lstsq(X, y, rcond=None)[0]
         return {'w': w[0]}
 
@@ -101,7 +104,7 @@ class LinearOriginModel:
         return params['w'] * X
 
 
-MODELS = [ConstantModel, LinearModel, LinearOriginModel]
+MODELS = [ConstantModel, LinearModel, LinearOriginModel]  # รายชื่อ model ทั้งหมด
 
 
 # --------------------------- Analytical Helpers ---------------------------
@@ -133,16 +136,19 @@ def analytical_constant(f, n_x=200000):
     """
     หาค่า bias² และ variance ของ constant model แบบ analytical
     ใช้ numerical integration (trapezoidal rule) บนกริดหนาแน่น
+    n_x = 200,000 จุด: กริดละเอียดมากเพื่อประมาณค่าอินทิกรัล
     """
     xs = np.linspace(-1, 1, n_x)
-    dx_factor = 1.0 / 2.0  # หาร 2 เพราะความกว้างช่วงคือ 2
+    dx_factor = 1.0 / 2.0  # หาร 2 เพราะความกว้างช่วงคือ 2 (pdf ของ Uniform[-1,1] = 1/2)
 
-    E_f = np.trapezoid(f(xs), xs) * dx_factor
-    E_f2 = np.trapezoid(f(xs)**2, xs) * dx_factor
+    E_f = np.trapezoid(f(xs), xs) * dx_factor      # E_x[f(x)]
+    E_f2 = np.trapezoid(f(xs)**2, xs) * dx_factor  # E_x[f(x)^2]
 
     g_bar = E_f
     bias2 = np.trapezoid((g_bar - f(xs))**2, xs) * dx_factor
-    # var(x) = E_D[g_D^2] - g_bar^2 = 0.5*(E[f^2] + E[f]^2) - E[f]^2 = 0.5*(E[f^2]-E[f]^2)
+    # variance = E_D[g_D^2] - g_bar^2
+    # กับ constant model และ n=2: E_D[g_D^2] = 0.5*(E[f^2] + E[f]^2)
+    # ดังนั้น variance = 0.5*(E[f^2] - E[f]^2)
     var = 0.5 * (E_f2 - E_f**2)
     variance = var
 
@@ -158,6 +164,8 @@ def analytical_model(f, model, n_x=400, n_mc=200000, seed_offset=0):
     """
     หาค่า bias² และ variance แบบ numerical integration เหนือ x1, x2
     ใช้ Monte Carlo integration สำหรับ E_D และ Riemann sum สำหรับ E_x
+    n_x   = 400:    กริดสำหรับประมาณค่า E_x
+    n_mc  = 200,000: จำนวนชุดข้อมูล (x1,x2) สำหรับ Monte Carlo ประมาณ E_D
     """
     if model == ConstantModel:
         return analytical_constant(f, n_x=200000)
@@ -166,9 +174,9 @@ def analytical_model(f, model, n_x=400, n_mc=200000, seed_offset=0):
     xs = np.linspace(-1, 1, n_x)
 
     if model == LinearModel:
-        gD_func = gD_linear
+        gD_func = gD_linear          # fit เส้นตรงผ่าน 2 จุด
     else:  # LinearOriginModel
-        gD_func = gD_linear_origin
+        gD_func = gD_linear_origin   # fit เส้นตรงผ่าน origin จาก 2 จุด
 
     x1 = rng.uniform(-1, 1, n_mc)
     x2 = rng.uniform(-1, 1, n_mc)
@@ -200,13 +208,19 @@ def analytical_model(f, model, n_x=400, n_mc=200000, seed_offset=0):
 
 # --------------------------- Simulation Bias/Variance ---------------------------
 def simulate_bias_variance(f, model, n_samples=2, n_datasets=50000, n_test=300, sigma=0.0):
-    """Monte Carlo estimate ของ bias² และ variance"""
+    """
+    Monte Carlo estimate ของ bias² และ variance
+    n_samples  = 2:      ขนาดชุด train ตามโจทย์ (ยกเว้น learning curve)
+    n_datasets = 50,000: จำนวนชุดข้อมูล D สำหรับประมาณ E_D
+    n_test     = 300:    จำนวนจุดทดสอบบนช่วง [-1,1]
+    sigma      = 0.0:    ระดับ noise (0 = ไม่มี noise ในโจทย์หลัก)
+    """
     x_test = np.linspace(-1, 1, n_test)
     preds = np.zeros((n_datasets, n_test))
 
     for i in range(n_datasets):
         X = np.random.uniform(-1, 1, n_samples)
-        y = f(X) + np.random.normal(0, sigma, n_samples)
+        y = f(X) + np.random.normal(0, sigma, n_samples)  # เพิ่ม noise ตาม sigma
         params = model.fit(X, y)
         preds[i] = model.predict(params, x_test)
 
@@ -228,7 +242,11 @@ def simulate_bias_variance(f, model, n_samples=2, n_datasets=50000, n_test=300, 
 
 # --------------------------- Learning Curves ---------------------------
 def learning_curve(f, model, n_list, n_datasets=3000, n_test=1000, sigma=0.0):
-    """คืนค่า Ein และ Eout เฉลี่ยสำหรับแต่ละ n"""
+    """
+    คืนค่า Ein และ Eout เฉลี่ยสำหรับแต่ละ n
+    n_datasets = 3,000: จำนวนชุดข้อมูลเฉลี่ยสำหรับแต่ละค่า n
+    n_test     = 1,000: จำนวนจุดทดสอบสำหรับคำนวณ Eout
+    """
     x_test = np.linspace(-1, 1, n_test)
     Ein_list, Eout_list = [], []
 
@@ -263,6 +281,7 @@ for target_name, f in TARGETS.items():
     print(f"\n### Target: {target_name} ###")
     results['bias_variance'][target_name] = {}
     for model in MODELS:
+        # คำนวณทั้งแบบ analytical และ simulation สำหรับทุก model
         ana = analytical_model(f, model)
         sim = simulate_bias_variance(f, model)
         results['bias_variance'][target_name][model.name] = {
@@ -284,7 +303,7 @@ print("\n" + "=" * 80)
 print("Generating plots...")
 print("=" * 80)
 
-x_plot = np.linspace(-1, 1, 500)
+x_plot = np.linspace(-1, 1, 500)  # กริด 500 จุดสำหรับวาดกราฟ
 
 # =============================================================================
 # Plot 1: Average Fit Visualization
@@ -296,7 +315,7 @@ for row_idx, (target_name, f) in enumerate(TARGETS.items()):
         ax = axes[row_idx, col_idx]
         ax.plot(x_plot, f(x_plot), 'g-', linewidth=2, label='Target f(x)')
 
-        # วาด g_bar จาก simulation
+        # วาด g_bar (ค่าเฉลี่ยของ hypothesis ทั้งหมดบน test set) จาก simulation
         res = results['bias_variance'][target_name][model.name]['simulation']
         g_bar_arr = np.array(res['g_bar'])
         std_arr = np.array(res['std'])
@@ -310,7 +329,7 @@ for row_idx, (target_name, f) in enumerate(TARGETS.items()):
         f_avg = np.trapezoid(f(x_plot), x_plot) / (x_plot[-1] - x_plot[0])
         ax.axhline(y=f_avg, color='darkred', alpha=0.5, linewidth=1.5, linestyle='-', label='E[f(x)]')
 
-        # วาดตัวอย่าง hypothesis บางส่วน เพื่อแสดง variance
+        # วาด hypothesis ตัวอย่าง 20 เส้น จากชุด train ขนาด n=2 เพื่อแสดง variance
         for _ in range(20):
             X = np.random.uniform(-1, 1, 2)
             y = f(X)
@@ -343,8 +362,8 @@ for target_name in TARGETS:
 # =============================================================================
 # Plot 2 & 3: Learning Curves
 # =============================================================================
-n_list = [2, 3, 4, 5, 7, 10, 15, 20, 30, 50, 100]
-noise_levels = [0.0, 0.1, 0.3]
+n_list = [2, 3, 4, 5, 7, 10, 15, 20, 30, 50, 100]  # ขนาดชุด train ที่ทดลอง
+noise_levels = [0.0, 0.1, 0.3]                       # ระดับ noise σ ที่ทดลอง
 noise_colors = {0.0: '#3B82F6', 0.1: '#10B981', 0.3: '#F59E0B'}
 
 learning_results = {}
