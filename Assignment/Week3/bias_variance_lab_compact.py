@@ -87,26 +87,26 @@ plt.tight_layout()
 plt.savefig(os.path.join(PLOTS_DIR, 'average_fit.png'), dpi=150)
 print('\nSaved: plots/average_fit.png')
 
-for target_name, f in TARGETS.items():
+# Combined 2x3 learning curves: rows=targets, cols=models
+fig2, axes2 = plt.subplots(2, 3, figsize=(15, 8), sharex=True, sharey='row')
+for row, (target_name, f) in enumerate(TARGETS.items()):
     ymax = YMAX[target_name]
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4), sharey=True)
-    for ax, model in zip(axes, MODELS):
+    for col, model in enumerate(MODELS):
+        ax = axes2[row, col]
         for sigma in NOISE:
             Ein, Eout = learning_curve(f, model, N_LIST, sigma=sigma)
             ax.plot(N_LIST, np.clip(Ein, 0, ymax), '--', color=COLORS[sigma], label=f'Ein σ={sigma}', alpha=0.7)
             ax.plot(N_LIST, np.clip(Eout, 0, ymax), '-', color=COLORS[sigma], label=f'Eout σ={sigma}', alpha=0.7)
-        ax.set_xlabel('n (number of samples)')
+        ax.set_xlabel('n')
         ax.set_ylabel('Expected Error')
-        ax.set_title(model)
+        ax.set_title(f'{target_name} | {model}', fontsize=8)
         ax.set_xscale('log')
         ax.set_ylim(0, ymax)
         ax.tick_params(labelleft=True)
-        ax.legend(fontsize=7)
+        ax.legend(fontsize=5)
         ax.grid(True, alpha=0.3)
-    plt.suptitle(f'Learning Curves | Target: {target_name}', fontsize=14)
-    plt.tight_layout()
-    filename = f'learning_curve_{safe_filename(target_name)}.png'
-    plt.savefig(os.path.join(PLOTS_DIR, filename), dpi=150)
-    print(f"Saved: plots/{filename}")
+plt.tight_layout()
+plt.savefig(os.path.join(PLOTS_DIR, 'learning_curve.png'), dpi=150)
+print('Saved: plots/learning_curve.png')
 
 print('\nDone!')
