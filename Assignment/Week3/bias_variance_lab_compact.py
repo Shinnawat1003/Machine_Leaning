@@ -99,7 +99,7 @@ for row, (target_name, f) in enumerate(TARGETS.items()):
             ax.plot(N_LIST, np.clip(Eout, 0, ymax), '-', color=COLORS[sigma], label=f'Eout σ={sigma}', alpha=0.7)
         ax.set_xlabel('n')
         ax.set_ylabel('Expected Error')
-        ax.set_title(f'{target_name} | {model}', fontsize=8)
+        ax.set_title(f'{target_name} | {model}')
         ax.set_xscale('log')
         ax.set_ylim(0, ymax)
         ax.tick_params(labelleft=True)
