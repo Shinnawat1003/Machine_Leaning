@@ -11,8 +11,9 @@ os.makedirs(PLOTS_DIR, exist_ok=True)
 
 TARGETS = {'sin(pi*x)': lambda x: np.sin(np.pi * x), 'x^2': lambda x: x ** 2}
 MODELS = ['Constant', 'Linear', 'Linear through origin']
-NOISE = [0.0, 0.1, 0.3]
-COLORS = {0.0: '#3B82F6', 0.1: '#10B981', 0.3: '#F59E0B'}
+NOISE = [0.0, 0.3]
+# Okabe-Ito colorblind-friendly palette
+COLORS = {0.0: '#0072B2', 0.3: '#D55E00'}
 N_LIST = [2, 3, 4, 5, 7, 10, 15, 20, 30, 50, 100]
 YMAX = {'x^2': 0.6, 'sin(pi*x)': 1.0}
 
@@ -80,7 +81,8 @@ for row, (target_name, f) in enumerate(TARGETS.items()):
             ax.plot(x_plot, fit_predict(model, X, f(X), x_plot), 'k-', alpha=0.2, linewidth=0.5)
         ax.set_title(f"{target_name} | {model}")
         ax.set_xlim(-1, 1)
-        ax.legend(fontsize=7)
+        ax.set_ylim(-4, 4)
+        ax.legend(fontsize=9, loc='upper center')
         ax.grid(True, alpha=0.3)
 
 plt.tight_layout()
@@ -103,7 +105,7 @@ for row, (target_name, f) in enumerate(TARGETS.items()):
         ax.set_xscale('log')
         ax.set_ylim(0, ymax)
         ax.tick_params(labelleft=True)
-        ax.legend(fontsize=5)
+        ax.legend(fontsize=9, loc='upper center')
         ax.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.savefig(os.path.join(PLOTS_DIR, 'learning_curve.png'), dpi=150)

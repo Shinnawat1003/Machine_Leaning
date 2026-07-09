@@ -363,7 +363,7 @@ for target_name in TARGETS:
 # Plot 2 & 3: Learning Curves
 # =============================================================================
 n_list = [2, 3, 4, 5, 7, 10, 15, 20, 30, 50, 100]  # ขนาดชุด train ที่ทดลอง
-noise_levels = [0.0, 0.1, 0.3]                       # ระดับ noise σ ที่ทดลอง
+noise_levels = [0.0, 0.3]                            # ระดับ noise σ ที่ทดลอง
 noise_colors = {0.0: '#3B82F6', 0.1: '#10B981', 0.3: '#F59E0B'}
 
 learning_results = {}
