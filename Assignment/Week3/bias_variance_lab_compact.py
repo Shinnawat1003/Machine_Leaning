@@ -9,13 +9,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PLOTS_DIR = os.path.join(BASE_DIR, 'plots')
 os.makedirs(PLOTS_DIR, exist_ok=True)
 
-
-def safe_filename(name):
-    for ch in ' ^*()<>?:"/\\|?':
-        name = name.replace(ch, '')
-    return name.replace(' ', '_')
-
-
 TARGETS = {'sin(pi*x)': lambda x: np.sin(np.pi * x), 'x^2': lambda x: x ** 2}
 MODELS = ['Constant', 'Linear', 'Linear through origin']
 NOISE = [0.0, 0.1, 0.3]
